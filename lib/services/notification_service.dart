@@ -14,6 +14,9 @@ class NotificationService {
   // Callback — set by app to open verification screen
   static void Function(String taskId, String taskTitle)? onVerificationRequired;
 
+  // How many minutes before deadline to show the warning — updated from Settings
+  static int leadMinutes = 15;
+
   Future<void> init() async {
     if (_initialized || kIsWeb) return;
     tz.initializeTimeZones();
@@ -62,12 +65,12 @@ class NotificationService {
 
     final idBase = taskId.hashCode.abs() % 100000;
 
-    // 15-minute warning
-    final warningTime = deadline.subtract(const Duration(minutes: 15));
+    // Warning notification (lead time from settings)
+    final warningTime = deadline.subtract(Duration(minutes: leadMinutes));
     if (warningTime.isAfter(now)) {
       await _plugin.zonedSchedule(
         idBase,
-        '⏰ Task due in 15 minutes',
+        '⏰ Task due in $leadMinutes minutes',
         taskTitle,
         tz.TZDateTime.from(warningTime, tz.local),
         _notifDetails(taskTitle, warning: true),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../services/claude_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 
@@ -17,32 +17,53 @@ class _AddTaskScreenState extends ConsumerState<AddTaskScreen> {
   final _descController = TextEditingController();
   int _estimatedMinutes = 30;
   String _priority = 'medium';
-  bool _aiSchedule = true;
   bool _loading = false;
-  String? _aiReasoning;
-  DateTime? _scheduledTime;
+  DateTime _scheduledTime = DateTime.now().add(const Duration(hours: 1));
 
   final List<int> _durationOptions = [15, 30, 45, 60, 90, 120];
 
-  Future<void> _getAiSchedule() async {
-    if (_titleController.text.trim().isEmpty) return;
-    setState(() { _loading = true; _aiReasoning = null; });
-    try {
-      final existingTasks = await SupabaseService.getTodayTasks();
-      final result = await ClaudeService().scheduleTask(
-        title: _titleController.text.trim(),
-        description: _descController.text.trim(),
-        estimatedMinutes: _estimatedMinutes,
-        existingTasks: existingTasks,
-      );
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _scheduledTime,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) {
       setState(() {
-        _scheduledTime = DateTime.parse(result['scheduled_time']);
-        _aiReasoning = result['reasoning'];
+        _scheduledTime = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          _scheduledTime.hour,
+          _scheduledTime.minute,
+        );
       });
-    } catch (e) {
-      _showError('AI scheduling failed: $e');
-    } finally {
-      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_scheduledTime),
+    );
+    if (picked != null) {
+      setState(() {
+        _scheduledTime = DateTime(
+          _scheduledTime.year,
+          _scheduledTime.month,
+          _scheduledTime.day,
+          picked.hour,
+          picked.minute,
+        );
+      });
     }
   }
 
@@ -54,22 +75,20 @@ class _AddTaskScreenState extends ConsumerState<AddTaskScreen> {
     setState(() => _loading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      final deadline = _scheduledTime ?? DateTime.now().add(const Duration(hours: 1));
       final created = await SupabaseService.createTask({
         'user_id': userId,
         'title': _titleController.text.trim(),
         'description': _descController.text.trim(),
-        'scheduled_time': deadline.toIso8601String(),
+        'scheduled_time': _scheduledTime.toIso8601String(),
         'status': 'pending',
-        'ai_generated': _aiSchedule,
-        'ai_reasoning': _aiReasoning,
+        'ai_generated': false,
         'priority': _priority,
       });
-      // Schedule notification for this task
+      // Schedule reminder notification
       await NotificationService().scheduleTaskNotifications(
         taskId: created['id'],
         taskTitle: _titleController.text.trim(),
-        deadline: deadline,
+        deadline: _scheduledTime,
       );
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -80,117 +99,166 @@ class _AddTaskScreenState extends ConsumerState<AddTaskScreen> {
   }
 
   void _showError(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(msg), backgroundColor: Colors.red),
-  );
+        SnackBar(content: Text(msg), backgroundColor: AppColors.destructive),
+      );
+
+  String get _formattedDate {
+    final now = DateTime.now();
+    final d = _scheduledTime;
+    if (d.year == now.year && d.month == now.month && d.day == now.day) return 'Today';
+    if (d.year == now.year && d.month == now.month && d.day == now.day + 1) return 'Tomorrow';
+    return '${d.day} ${_months[d.month - 1]} ${d.year}';
+  }
+
+  String get _formattedTime {
+    final h = _scheduledTime.hour;
+    final m = _scheduledTime.minute.toString().padLeft(2, '0');
+    final suffix = h >= 12 ? 'PM' : 'AM';
+    final hour = h % 12 == 0 ? 12 : h % 12;
+    return '$hour:$m $suffix';
+  }
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('New Task'), actions: [
-        TextButton(onPressed: _loading ? null : _saveTask, child: const Text('Save')),
-      ]),
+      appBar: AppBar(
+        title: const Text('New Task'),
+        backgroundColor: AppColors.bg,
+        actions: [
+          TextButton(
+            onPressed: _loading ? null : _saveTask,
+            child: const Text('Save', style: TextStyle(color: AppColors.accent, fontSize: 17, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Title
+            // ── Title ──────────────────────────────────
             TextField(
               controller: _titleController,
-              decoration: const InputDecoration(labelText: 'Task title *', border: OutlineInputBorder(), prefixIcon: Icon(Icons.task_alt)),
+              decoration: const InputDecoration(
+                labelText: 'Task title *',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.task_alt),
+              ),
               textCapitalization: TextCapitalization.sentences,
+              autofocus: true,
             ),
             const SizedBox(height: 16),
 
-            // Description
+            // ── Description ────────────────────────────
             TextField(
               controller: _descController,
-              decoration: const InputDecoration(labelText: 'Description (optional)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.notes)),
+              decoration: const InputDecoration(
+                labelText: 'Description (optional)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.notes),
+              ),
               maxLines: 3,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
-            // Duration
-            Text('Estimated Duration', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
+            // ── Schedule ────────────────────────────────
+            Text('Schedule', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: _pickDate,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: theme.dividerColor),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.accent),
+                      const SizedBox(width: 10),
+                      Text(_formattedDate, style: const TextStyle(fontSize: 15, color: AppColors.label)),
+                    ]),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: GestureDetector(
+                  onTap: _pickTime,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: theme.dividerColor),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.access_time_outlined, size: 18, color: AppColors.accent),
+                      const SizedBox(width: 10),
+                      Text(_formattedTime, style: const TextStyle(fontSize: 15, color: AppColors.label)),
+                    ]),
+                  ),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 24),
+
+            // ── Duration ───────────────────────────────
+            Text('Estimated Duration', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 10),
             Wrap(
               spacing: 8,
-              children: _durationOptions.map((min) => ChoiceChip(
-                label: Text('${min}m'),
-                selected: _estimatedMinutes == min,
-                onSelected: (_) => setState(() => _estimatedMinutes = min),
-              )).toList(),
+              runSpacing: 8,
+              children: _durationOptions
+                  .map((min) => ChoiceChip(
+                        label: Text(
+                          min < 60
+                              ? '${min}m'
+                              : min % 60 == 0
+                                  ? '${min ~/ 60}h'
+                                  : '${min ~/ 60}h ${min % 60}m',
+                        ),
+                        selected: _estimatedMinutes == min,
+                        onSelected: (_) => setState(() => _estimatedMinutes = min),
+                      ))
+                  .toList(),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
-            // Priority
-            Text('Priority', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
+            // ── Priority ───────────────────────────────
+            Text('Priority', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 10),
             SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: 'low', label: Text('Low'), icon: Icon(Icons.arrow_downward)),
-                ButtonSegment(value: 'medium', label: Text('Medium'), icon: Icon(Icons.remove)),
-                ButtonSegment(value: 'high', label: Text('High'), icon: Icon(Icons.arrow_upward)),
+                ButtonSegment(value: 'low', label: Text('Low'), icon: Icon(Icons.arrow_downward, size: 14)),
+                ButtonSegment(value: 'medium', label: Text('Medium'), icon: Icon(Icons.remove, size: 14)),
+                ButtonSegment(value: 'high', label: Text('High'), icon: Icon(Icons.arrow_upward, size: 14)),
               ],
               selected: {_priority},
               onSelectionChanged: (val) => setState(() => _priority = val.first),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 36),
 
-            // AI Scheduling toggle
-            SwitchListTile(
-              title: const Text('AI Smart Scheduling'),
-              subtitle: const Text('Let Claude pick the best time'),
-              value: _aiSchedule,
-              onChanged: (val) => setState(() => _aiSchedule = val),
-              secondary: const Icon(Icons.auto_awesome),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: theme.dividerColor)),
-            ),
-            const SizedBox(height: 16),
-
-            if (_aiSchedule) ...[
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _loading ? null : _getAiSchedule,
-                  icon: _loading ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.auto_awesome),
-                  label: Text(_loading ? 'Thinking...' : 'Get AI Schedule'),
-                ),
-              ),
-              if (_aiReasoning != null && _scheduledTime != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF6C63FF).withValues(alpha:0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF6C63FF).withValues(alpha:0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        const Icon(Icons.schedule, size: 16, color: Color(0xFF6C63FF)),
-                        const SizedBox(width: 6),
-                        Text(_scheduledTime!.toString().substring(0, 16), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF6C63FF))),
-                      ]),
-                      const SizedBox(height: 4),
-                      Text(_aiReasoning!, style: theme.textTheme.bodySmall),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-
-            const SizedBox(height: 32),
+            // ── Save button ────────────────────────────
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: _loading ? null : _saveTask,
-                icon: const Icon(Icons.add_task),
-                label: const Text('Create Task', style: TextStyle(fontSize: 16)),
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                icon: _loading
+                    ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.add_task),
+                label: Text(_loading ? 'Saving...' : 'Create Task', style: const TextStyle(fontSize: 16)),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                ),
               ),
             ),
           ],
