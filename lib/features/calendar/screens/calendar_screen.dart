@@ -81,7 +81,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     onTap: () => setState(() => _selected = DateTime(_focused.year, _focused.month, day)),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: isSel ? AppColors.accent : isToday ? AppColors.accent.withOpacity(0.1) : null,
+                        color: isSel ? AppColors.accent : isToday ? AppColors.accent.withValues(alpha:0.1) : null,
                         shape: BoxShape.circle,
                       ),
                       alignment: Alignment.center,

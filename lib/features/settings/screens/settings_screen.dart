@@ -47,7 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Row(children: [
                 CircleAvatar(
                   radius: 24,
-                  backgroundColor: AppColors.accent.withOpacity(0.15),
+                  backgroundColor: AppColors.accent.withValues(alpha:0.15),
                   child: Text(_email.isNotEmpty ? _email[0].toUpperCase() : '?', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.accent)),
                 ),
                 const SizedBox(width: 12),
@@ -58,7 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       margin: const EdgeInsets.only(top: 3),
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: isAdmin ? const Color(0xFFFFD700).withOpacity(0.2) : AppColors.accent.withOpacity(0.1),
+                        color: isAdmin ? const Color(0xFFFFD700).withValues(alpha:0.2) : AppColors.accent.withValues(alpha:0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(

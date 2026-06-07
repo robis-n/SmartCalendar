@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../services/supabase_service.dart';
 
@@ -42,7 +41,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: isCurrent ? color : Colors.grey.shade300, width: isCurrent ? 2 : 1),
-        color: isCurrent ? color.withOpacity(0.05) : null,
+        color: isCurrent ? color.withValues(alpha:0.05) : null,
       ),
       child: Padding(
         padding: const EdgeInsets.all(20),

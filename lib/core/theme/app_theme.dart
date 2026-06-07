@@ -50,7 +50,7 @@ class AppTheme {
       backgroundColor: AppColors.bg,
       elevation: 0,
       shadowColor: AppColors.separator,
-      indicatorColor: AppColors.accent.withOpacity(0.12),
+      indicatorColor: AppColors.accent.withValues(alpha:0.12),
       labelTextStyle: WidgetStateProperty.all(
         const TextStyle(fontSize: 10, fontWeight: FontWeight.w500),
       ),

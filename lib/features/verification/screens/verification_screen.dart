@@ -150,9 +150,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: _resultColor.withOpacity(0.15),
+                      color: _resultColor.withValues(alpha:0.15),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: _resultColor.withOpacity(0.5)),
+                      border: Border.all(color: _resultColor.withValues(alpha:0.5)),
                     ),
                     child: Row(children: [
                       Icon(_result!['verified'] == true ? Icons.check_circle : Icons.cancel, color: _resultColor),

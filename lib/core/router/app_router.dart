@@ -14,17 +14,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/login',
     routes: [
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+      GoRoute(path: '/login', builder: (ctx, state) => const LoginScreen()),
       ShellRoute(
-        builder: (_, __, child) => MainShell(child: child),
+        builder: (ctx, state, child) => MainShell(child: child),
         routes: [
-          GoRoute(path: '/dashboard', builder: (_, __) => const DashboardScreen()),
-          GoRoute(path: '/calendar', builder: (_, __) => const CalendarScreen()),
-          GoRoute(path: '/friends', builder: (_, __) => const FriendsScreen()),
-          GoRoute(path: '/analytics', builder: (_, __) => const AnalyticsScreen()),
-          GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
-          GoRoute(path: '/subscriptions', builder: (_, __) => const SubscriptionScreen()),
-          GoRoute(path: '/tasks/:id', builder: (_, state) => TaskDetailScreen(taskId: state.pathParameters['id']!)),
+          GoRoute(path: '/dashboard', builder: (ctx, state) => const DashboardScreen()),
+          GoRoute(path: '/calendar', builder: (ctx, state) => const CalendarScreen()),
+          GoRoute(path: '/friends', builder: (ctx, state) => const FriendsScreen()),
+          GoRoute(path: '/analytics', builder: (ctx, state) => const AnalyticsScreen()),
+          GoRoute(path: '/settings', builder: (ctx, state) => const SettingsScreen()),
+          GoRoute(path: '/subscriptions', builder: (ctx, state) => const SubscriptionScreen()),
+          GoRoute(path: '/tasks/:id', builder: (ctx, state) => TaskDetailScreen(taskId: state.pathParameters['id']!)),
         ],
       ),
     ],
