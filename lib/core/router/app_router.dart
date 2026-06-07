@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/dashboard/screens/dashboard_screen.dart';
 import '../../features/calendar/screens/calendar_screen.dart';
@@ -13,6 +14,13 @@ import '../../shared/widgets/main_shell.dart';
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/login',
+    redirect: (context, state) {
+      final isLoggedIn = Supabase.instance.client.auth.currentUser != null;
+      final isOnLogin = state.uri.path == '/login';
+      if (isLoggedIn && isOnLogin) return '/dashboard';
+      if (!isLoggedIn && !isOnLogin) return '/login';
+      return null;
+    },
     routes: [
       GoRoute(path: '/login', builder: (ctx, state) => const LoginScreen()),
       ShellRoute(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../tasks/screens/add_task_screen.dart';
 import '../../verification/screens/verification_screen.dart';
@@ -24,6 +25,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     setState(() => _loading = true);
     final tasks = await SupabaseService.getTodayTasks();
     final profile = await SupabaseService.getUserProfile();
+    final upcoming = await SupabaseService.getUpcomingPendingTasks();
+
+    // Reschedule all notifications for upcoming tasks
+    NotificationService().rescheduleAll(upcoming);
+
+    // Wire notification tap → verification screen
+    NotificationService.onVerificationRequired = (taskId, taskTitle) {
+      if (mounted) {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => VerificationScreen(taskId: taskId, taskTitle: taskTitle),
+        ));
+      }
+    };
+
     setState(() {
       _tasks = tasks;
       _tier = profile?['subscription_tier'] ?? AppConstants.tierFree;

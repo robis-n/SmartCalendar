@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/claude_service.dart';
+import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 
 class AddTaskScreen extends ConsumerStatefulWidget {
@@ -53,16 +54,23 @@ class _AddTaskScreenState extends ConsumerState<AddTaskScreen> {
     setState(() => _loading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
-      await SupabaseService.createTask({
+      final deadline = _scheduledTime ?? DateTime.now().add(const Duration(hours: 1));
+      final created = await SupabaseService.createTask({
         'user_id': userId,
         'title': _titleController.text.trim(),
         'description': _descController.text.trim(),
-        'scheduled_time': (_scheduledTime ?? DateTime.now().add(const Duration(hours: 1))).toIso8601String(),
+        'scheduled_time': deadline.toIso8601String(),
         'status': 'pending',
         'ai_generated': _aiSchedule,
         'ai_reasoning': _aiReasoning,
         'priority': _priority,
       });
+      // Schedule notification for this task
+      await NotificationService().scheduleTaskNotifications(
+        taskId: created['id'],
+        taskTitle: _titleController.text.trim(),
+        deadline: deadline,
+      );
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       _showError('Failed to save task: $e');

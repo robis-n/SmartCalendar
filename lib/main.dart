@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'services/notification_service.dart';
 import 'app.dart';
 
 Future<void> main() async {
@@ -14,6 +15,8 @@ Future<void> main() async {
     // ignore: deprecated_member_use
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
+
+  await NotificationService().init();
 
   runApp(const ProviderScope(child: AccountabilityApp()));
 }

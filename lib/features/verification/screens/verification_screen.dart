@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
 import '../../../services/claude_service.dart';
+import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 
 class VerificationScreen extends StatefulWidget {
@@ -66,6 +67,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
       setState(() { _result = result; _attempts++; });
 
       if (result['verified'] == true) {
+        // Cancel the persistent notification since task is verified
+        await NotificationService().cancelTaskNotifications(widget.taskId);
         final url = await SupabaseService.uploadVerificationPhoto(widget.taskId, finalBytes, 'jpg');
         await SupabaseService.saveVerification({
           'task_id': widget.taskId,
@@ -91,6 +94,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   Future<void> _markFailed() async {
+    await NotificationService().cancelTaskNotifications(widget.taskId);
     await SupabaseService.updateTaskStatus(widget.taskId, 'failed');
     if (mounted) Navigator.of(context).pop(false);
   }

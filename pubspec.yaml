@@ -33,6 +33,7 @@ dependencies:
 
   # Notifications
   flutter_local_notifications: ^18.0.1
+  timezone: '>=0.9.0 <1.0.0'
 
   # Camera / photo
   image_picker: ^1.1.2
