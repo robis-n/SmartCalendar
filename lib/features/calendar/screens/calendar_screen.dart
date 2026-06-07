@@ -103,7 +103,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               : ListView.separated(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: _tasks.length,
-                  separatorBuilder: (_, __) => const Divider(indent: 16),
+                  separatorBuilder: (ctx, i) => const Divider(indent: 16),
                   itemBuilder: (ctx, i) {
                     final t = _tasks[i];
                     return Container(
