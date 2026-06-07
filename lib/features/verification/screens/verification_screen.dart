@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
@@ -17,6 +18,7 @@ class VerificationScreen extends StatefulWidget {
 
 class _VerificationScreenState extends State<VerificationScreen> {
   XFile? _photo;
+  Uint8List? _photoBytes; // used on web
   bool _loading = false;
   Map<String, dynamic>? _result;
   int _attempts = 0;
@@ -24,25 +26,35 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   Future<void> _takePhoto() async {
     final picker = ImagePicker();
-    final photo = await picker.pickImage(source: ImageSource.camera, maxWidth: 512, maxHeight: 512, imageQuality: 80);
+    final photo = await picker.pickImage(
+      source: ImageSource.camera,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 80,
+    );
     if (photo == null) return;
-    setState(() { _photo = photo; _result = null; });
+    final bytes = await photo.readAsBytes();
+    setState(() {
+      _photo = photo;
+      _photoBytes = bytes;
+      _result = null;
+    });
   }
 
   Future<void> _verify() async {
-    if (_photo == null) return;
+    if (_photo == null || _photoBytes == null) return;
     if (_attempts >= maxAttempts) {
       _markFailed();
       return;
     }
     setState(() => _loading = true);
     try {
-      final bytes = await _photo!.readAsBytes();
-
       // Resize to save tokens
-      final decoded = img.decodeImage(bytes);
+      final decoded = img.decodeImage(_photoBytes!);
       final resized = decoded != null ? img.copyResize(decoded, width: 512) : null;
-      final finalBytes = resized != null ? img.encodeJpg(resized, quality: 80) : bytes;
+      final Uint8List finalBytes = resized != null
+          ? Uint8List.fromList(img.encodeJpg(resized, quality: 80))
+          : _photoBytes!;
 
       final base64Image = base64Encode(finalBytes);
       final result = await ClaudeService().verifyPhoto(
@@ -54,7 +66,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
       setState(() { _result = result; _attempts++; });
 
       if (result['verified'] == true) {
-        // Upload photo & save verification
         final url = await SupabaseService.uploadVerificationPhoto(widget.taskId, finalBytes, 'jpg');
         await SupabaseService.saveVerification({
           'task_id': widget.taskId,
@@ -69,7 +80,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
         await _markFailed();
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -85,10 +98,34 @@ class _VerificationScreenState extends State<VerificationScreen> {
     return _result!['verified'] == true ? Colors.green : Colors.red;
   }
 
+  Widget _buildPhotoPreview() {
+    if (_photoBytes != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.memory(_photoBytes!, fit: BoxFit.cover),
+      );
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.add_a_photo_outlined, size: 64, color: Colors.white38),
+          SizedBox(height: 12),
+          Text('Tap below to take a photo', style: TextStyle(color: Colors.white38)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: false, // Can't dismiss without verifying
+      canPop: false,
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
@@ -106,36 +143,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 Text('Attempt ${_attempts + 1} / $maxAttempts', style: const TextStyle(color: Colors.grey), textAlign: TextAlign.center),
                 const SizedBox(height: 32),
 
-                // Photo preview
-                Expanded(
-                  child: _photo != null
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: Image.file(File(_photo!.path), fit: BoxFit.cover),
-                      )
-                    : Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white24),
-                        ),
-                        child: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.add_a_photo_outlined, size: 64, color: Colors.white38),
-                            SizedBox(height: 12),
-                            Text('Tap below to take a photo', style: TextStyle(color: Colors.white38)),
-                          ],
-                        ),
-                      ),
-                ),
+                Expanded(child: _buildPhotoPreview()),
 
-                // AI result
                 if (_result != null) ...[
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(color: _resultColor.withOpacity(0.15), borderRadius: BorderRadius.circular(12), border: Border.all(color: _resultColor.withOpacity(0.5))),
+                    decoration: BoxDecoration(
+                      color: _resultColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _resultColor.withOpacity(0.5)),
+                    ),
                     child: Row(children: [
                       Icon(_result!['verified'] == true ? Icons.check_circle : Icons.cancel, color: _resultColor),
                       const SizedBox(width: 10),
@@ -151,15 +169,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
                     child: OutlinedButton.icon(
                       onPressed: _loading ? null : _takePhoto,
                       icon: const Icon(Icons.camera_alt, color: Colors.white),
-                      label: const Text('Take Photo', style: TextStyle(color: Colors.white)),
+                      label: Text(kIsWeb ? 'Upload Photo' : 'Take Photo', style: const TextStyle(color: Colors.white)),
                       style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white38), padding: const EdgeInsets.symmetric(vertical: 14)),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: (_loading || _photo == null) ? null : _verify,
-                      icon: _loading ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.verified),
+                      onPressed: (_loading || _photoBytes == null) ? null : _verify,
+                      icon: _loading
+                          ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.verified),
                       label: Text(_loading ? 'Verifying...' : 'Verify'),
                       style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
                     ),

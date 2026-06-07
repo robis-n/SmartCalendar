@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseService {
@@ -51,7 +52,7 @@ class SupabaseService {
   }
 
   // Storage — upload verification photo
-  static Future<String> uploadVerificationPhoto(String taskId, List<int> bytes, String ext) async {
+  static Future<String> uploadVerificationPhoto(String taskId, Uint8List bytes, String ext) async {
     final path = 'verifications/$taskId/${DateTime.now().millisecondsSinceEpoch}.$ext';
     await client.storage.from('verification-photos').uploadBinary(path, bytes);
     return client.storage.from('verification-photos').createSignedUrl(path, 3600);
