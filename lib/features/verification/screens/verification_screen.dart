@@ -1,10 +1,8 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:image/image.dart' as img;
-import '../../../services/claude_service.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../services/local_verification_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 
@@ -18,79 +16,78 @@ class VerificationScreen extends StatefulWidget {
 }
 
 class _VerificationScreenState extends State<VerificationScreen> {
-  XFile? _photo;
-  Uint8List? _photoBytes; // used on web
-  bool _loading = false;
+  XFile?    _photo;
+  bool      _loading   = false;
   Map<String, dynamic>? _result;
-  int _attempts = 0;
-  static const int maxAttempts = 3;
+  int       _attempts  = 0;
+  static const _maxAttempts = 3;
 
-  Future<void> _takePhoto() async {
+  final _verifier = LocalVerificationService();
+
+  // ── Photo capture ──────────────────────────────────────────────────────────
+
+  Future<void> _pickPhoto() async {
     final picker = ImagePicker();
     final photo = await picker.pickImage(
-      source: ImageSource.camera,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 80,
+      source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 85,
     );
-    if (photo == null) return;
-    final bytes = await photo.readAsBytes();
-    setState(() {
-      _photo = photo;
-      _photoBytes = bytes;
-      _result = null;
-    });
+    if (photo == null || !mounted) return;
+    setState(() { _photo = photo; _result = null; });
   }
 
+  // ── Verify ─────────────────────────────────────────────────────────────────
+
   Future<void> _verify() async {
-    if (_photo == null || _photoBytes == null) return;
-    if (_attempts >= maxAttempts) {
-      await _markFailed();
-      return;
-    }
+    if (_photo == null) return;
+    if (_attempts >= _maxAttempts) { await _markFailed(); return; }
+
     setState(() => _loading = true);
     try {
-      // Resize to save tokens
-      final decoded = img.decodeImage(_photoBytes!);
-      final resized = decoded != null ? img.copyResize(decoded, width: 512) : null;
-      final Uint8List finalBytes = resized != null
-          ? Uint8List.fromList(img.encodeJpg(resized, quality: 80))
-          : _photoBytes!;
-
-      final base64Image = base64Encode(finalBytes);
-      final result = await ClaudeService().verifyPhoto(
+      final result = await _verifier.verifyPhoto(
         taskTitle: widget.taskTitle,
-        base64Image: base64Image,
-        mediaType: 'image/jpeg',
+        imagePath: _photo!.path,
       );
 
+      if (!mounted) return;
       setState(() { _result = result; _attempts++; });
 
       if (result['verified'] == true) {
-        // Cancel the persistent notification since task is verified
-        await NotificationService().cancelTaskNotifications(widget.taskId);
-        final url = await SupabaseService.uploadVerificationPhoto(widget.taskId, finalBytes, 'jpg');
-        await SupabaseService.saveVerification({
-          'task_id': widget.taskId,
-          'photo_url': url,
-          'ai_verified': true,
-          'ai_confidence': result['confidence'],
-          'ai_feedback': result['feedback'],
-        });
-        await SupabaseService.updateTaskStatus(widget.taskId, 'verified');
-        if (mounted) Navigator.of(context).pop(true);
-      } else if (_attempts >= maxAttempts) {
+        await _onVerified();
+      } else if (_attempts >= _maxAttempts) {
         await _markFailed();
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error: $e')),
         );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _onVerified() async {
+    await NotificationService().cancelTaskNotifications(widget.taskId);
+    // Upload photo to Supabase storage
+    final bytes = await _photo!.readAsBytes();
+    try {
+      final url = await SupabaseService.uploadVerificationPhoto(widget.taskId, bytes, 'jpg');
+      await SupabaseService.saveVerification({
+        'task_id':        widget.taskId,
+        'photo_url':      url,
+        'ai_verified':    true,
+        'ai_confidence':  _result?['confidence'],
+        'ai_feedback':    _result?['feedback'],
+      });
+    } catch (_) {
+      // Upload failure should not block marking the task done
+    }
+    await SupabaseService.updateTaskStatus(widget.taskId, 'verified');
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _markFailed() async {
@@ -99,107 +96,157 @@ class _VerificationScreenState extends State<VerificationScreen> {
     if (mounted) Navigator.of(context).pop(false);
   }
 
-  Color get _resultColor {
-    if (_result == null) return Colors.grey;
-    return _result!['verified'] == true ? Colors.green : Colors.red;
-  }
-
-  Widget _buildPhotoPreview() {
-    if (_photoBytes != null) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Image.memory(_photoBytes!, fit: BoxFit.cover),
-      );
-    }
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white10,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.add_a_photo_outlined, size: 64, color: Colors.white38),
-          SizedBox(height: 12),
-          Text('Tap below to take a photo', style: TextStyle(color: Colors.white38)),
-        ],
-      ),
-    );
-  }
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    final verified  = _result?['verified'] == true;
+    final failed    = _result != null && !verified;
+    final resultColor = verified ? AppColors.success : AppColors.destructive;
+    final attemptsLeft = _maxAttempts - _attempts;
+
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, _) {},
+      onPopInvokedWithResult: (didPop, result) {},
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Close / cancel button
+
+                // Close button
                 Align(
                   alignment: Alignment.topRight,
                   child: IconButton(
                     icon: const Icon(Icons.close, color: Colors.white54),
                     onPressed: () => Navigator.of(context).pop(null),
-                    tooltip: 'Cancel',
                   ),
                 ),
-                const Icon(Icons.camera_alt_rounded, size: 48, color: Color(0xFF6C63FF)),
-                const SizedBox(height: 12),
-                const Text('Prove It!', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-                const SizedBox(height: 6),
-                Text(widget.taskTitle, style: const TextStyle(color: Colors.white70, fontSize: 16), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
-                Text('Attempt ${_attempts + 1} / $maxAttempts', style: const TextStyle(color: Colors.grey), textAlign: TextAlign.center),
-                const SizedBox(height: 32),
 
-                Expanded(child: _buildPhotoPreview()),
+                // Header
+                const Icon(Icons.camera_alt_rounded, size: 40, color: AppColors.accent),
+                const SizedBox(height: 10),
+                const Text('Verify Task',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(widget.taskTitle,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white60, fontSize: 15)),
+                const SizedBox(height: 4),
+                Text(
+                  _attempts == 0
+                      ? 'Take a photo to prove completion'
+                      : 'Attempt $_attempts / $_maxAttempts  ($attemptsLeft left)',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white38, fontSize: 13),
+                ),
+                const SizedBox(height: 20),
 
+                // Photo preview
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: _photo == null
+                        ? _emptyPhoto()
+                        : kIsWeb
+                            ? FutureBuilder<dynamic>(
+                                future: _photo!.readAsBytes(),
+                                builder: (ctx, snap) {
+                                  if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+                                  return Image.memory(snap.data!, fit: BoxFit.cover);
+                                },
+                              )
+                            : Image.network(_photo!.path, fit: BoxFit.cover,
+                                errorBuilder: (ctx, err, st) => _emptyPhoto()),
+                  ),
+                ),
+
+                // Result banner
                 if (_result != null) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: _resultColor.withValues(alpha:0.15),
+                      color: resultColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: _resultColor.withValues(alpha:0.5)),
+                      border: Border.all(color: resultColor.withValues(alpha: 0.4)),
                     ),
-                    child: Row(children: [
-                      Icon(_result!['verified'] == true ? Icons.check_circle : Icons.cancel, color: _resultColor),
-                      const SizedBox(width: 10),
-                      Expanded(child: Text(_result!['feedback'] ?? '', style: TextStyle(color: _resultColor))),
-                      Text('${((_result!['confidence'] ?? 0) * 100).round()}%', style: TextStyle(color: _resultColor, fontWeight: FontWeight.bold)),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Icon(verified ? Icons.check_circle : Icons.cancel,
+                            color: resultColor, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _result!['feedback'] ?? '',
+                            style: TextStyle(color: resultColor, fontSize: 14,
+                                fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                        Text(
+                          '${((_result!['confidence'] as num? ?? 0) * 100).round()}%',
+                          style: TextStyle(
+                              color: resultColor, fontSize: 14, fontWeight: FontWeight.w700),
+                        ),
+                      ]),
+                      if ((_result!['labels'] as String? ?? '').isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Detected: ${_result!['labels']}',
+                          style: const TextStyle(color: Colors.white38, fontSize: 11),
+                        ),
+                      ],
                     ]),
                   ),
                 ],
 
                 const SizedBox(height: 16),
+
+                // Buttons
                 Row(children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _loading ? null : _takePhoto,
-                      icon: const Icon(Icons.camera_alt, color: Colors.white),
-                      label: Text(kIsWeb ? 'Upload Photo' : 'Take Photo', style: const TextStyle(color: Colors.white)),
-                      style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white38), padding: const EdgeInsets.symmetric(vertical: 14)),
+                      onPressed: _loading ? null : _pickPhoto,
+                      icon: Icon(kIsWeb ? Icons.upload : Icons.camera_alt,
+                          color: Colors.white70, size: 18),
+                      label: Text(kIsWeb ? 'Upload' : 'Camera',
+                          style: const TextStyle(color: Colors.white70)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.white24),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: (_loading || _photoBytes == null) ? null : _verify,
+                      onPressed: (_loading || _photo == null) ? null : _verify,
                       icon: _loading
-                          ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.verified),
-                      label: Text(_loading ? 'Verifying...' : 'Verify'),
-                      style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                          ? const SizedBox(width: 16, height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.verified, size: 18),
+                      label: Text(_loading ? 'Checking…' : 'Verify'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
                     ),
                   ),
                 ]),
+
+                // Failed: give up option
+                if (failed && attemptsLeft == 0)
+                  TextButton(
+                    onPressed: _markFailed,
+                    child: const Text('Mark as Failed',
+                        style: TextStyle(color: Colors.white38)),
+                  ),
               ],
             ),
           ),
@@ -207,4 +254,18 @@ class _VerificationScreenState extends State<VerificationScreen> {
       ),
     );
   }
+
+  Widget _emptyPhoto() => Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.add_a_photo_outlined, size: 56, color: Colors.white24),
+          SizedBox(height: 12),
+          Text('Tap Camera to take a photo',
+              style: TextStyle(color: Colors.white30, fontSize: 14)),
+        ]),
+      );
 }
