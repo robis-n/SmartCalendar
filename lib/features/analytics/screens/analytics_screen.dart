@@ -149,7 +149,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
               ),
           ],
-          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+          const SliverToBoxAdapter(child: SizedBox(height: 110)),
         ]),
       ),
     );

@@ -148,199 +148,335 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final totalFriends = _accepted.length;
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        title: const Text('Friends'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_add_outlined),
-            onPressed: _addFriendDialog,
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(strokeWidth: 1.5))
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                children: [
-                  // Incoming requests
-                  if (_incoming.isNotEmpty) ...[
-                    _header('Requests', badge: _incoming.length),
-                    ..._incoming.map((f) => Column(children: [
-                      ListTile(
-                        leading: _avatar(_email(f)),
-                        title: Text(_email(f), style: const TextStyle(fontSize: 15)),
-                        subtitle: const Text('wants to connect', style: TextStyle(fontSize: 13, color: AppColors.label3)),
-                        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                          TextButton(
-                            onPressed: () async { await SupabaseService.declineFriendRequest(f['id']); _load(); },
-                            child: const Text('Decline', style: TextStyle(color: AppColors.label3)),
-                          ),
-                          FilledButton(
-                            onPressed: () async {
-                              await SupabaseService.acceptFriendRequest(f['id']);
-                              _snack('Connected!');
-                              _load();
-                            },
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size(0, 32),
-                              padding: const EdgeInsets.symmetric(horizontal: 14),
-                              textStyle: const TextStyle(fontSize: 13),
-                            ),
-                            child: const Text('Accept'),
-                          ),
-                        ]),
-                      ),
-                      const Divider(height: 1, indent: 56),
-                    ])),
-                  ],
-
-                  // Friends
-                  _header('Friends'),
-                  if (_accepted.isEmpty)
-                    _empty('No friends yet')
-                  else ...[
-                    ..._accepted.mapIndexed((i, f) => Column(children: [
-                      ListTile(
-                        leading: _avatar(_email(f)),
-                        title: Text(_email(f), style: const TextStyle(fontSize: 15)),
-                        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                          TextButton(
-                            onPressed: () => _challengeDialog(f),
-                            child: const Text('Challenge'),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.more_horiz, size: 20, color: AppColors.label3),
-                            onPressed: () => showModalBottomSheet(
-                              context: context,
-                              builder: (ctx) => SafeArea(child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  ListTile(
-                                    leading: const Icon(Icons.person_remove_outlined, color: AppColors.destructive),
-                                    title: const Text('Remove friend', style: TextStyle(color: AppColors.destructive)),
-                                    onTap: () async { Navigator.pop(ctx); await SupabaseService.declineFriendRequest(f['id']); _load(); },
-                                  ),
-                                ],
-                              )),
-                            ),
-                          ),
-                        ]),
-                      ),
-                      if (i < _accepted.length - 1) const Divider(height: 1, indent: 56),
-                    ])),
-                  ],
-
-                  // Sent requests
-                  if (_sent.isNotEmpty) ...[
-                    _header('Sent'),
-                    ..._sent.map((f) => Column(children: [
-                      ListTile(
-                        leading: _avatar(_email(f)),
-                        title: Text(_email(f), style: const TextStyle(fontSize: 15)),
-                        subtitle: const Text('pending', style: TextStyle(fontSize: 13, color: AppColors.label3)),
-                        trailing: TextButton(
-                          onPressed: () async { await SupabaseService.declineFriendRequest(f['id']); _load(); },
-                          child: const Text('Cancel', style: TextStyle(color: AppColors.label3)),
-                        ),
-                      ),
-                      const Divider(height: 1, indent: 56),
-                    ])),
-                  ],
-
-                  // Challenges
-                  _header('Challenges'),
-                  if (_challenges.isEmpty)
-                    _empty('No active challenges')
-                  else ...[
-                    ..._challenges.mapIndexed((i, c) => Column(children: [
-                      ListTile(
-                        leading: Container(
-                          width: 40, height: 40,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: AppColors.warning.withValues(alpha: 0.12),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.emoji_events, size: 20, color: AppColors.warning),
-                        ),
-                        title: Text(c['title'] ?? '', style: const TextStyle(fontSize: 15)),
-                        subtitle: Text(
-                          'with ${_partnerEmail(c)} · ${DateTime.now().difference(DateTime.parse(c['created_at'])).inDays}d',
-                          style: const TextStyle(fontSize: 13, color: AppColors.label3),
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.flag_outlined, size: 18, color: AppColors.label3),
-                          onPressed: () async {
-                            final ok = await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text('Abandon?'),
-                                content: Text(c['title'] ?? ''),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep going')),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, true),
-                                    child: const Text('Abandon', style: TextStyle(color: AppColors.destructive)),
-                                  ),
-                                ],
-                              ),
-                            );
-                            if (ok == true) { await SupabaseService.abandonChallenge(c['id']); _load(); }
-                          },
-                        ),
-                      ),
-                      if (i < _challenges.length - 1) const Divider(height: 1, indent: 56),
-                    ])),
-                  ],
-                  const SizedBox(height: 40),
-                ],
-              ),
+      backgroundColor: AppColors.bg,
+      body: Column(children: [
+        // ── Gradient Header ───────────────────────────────
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF7C5CFC), Color(0xFF5B3FD9)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addFriendDialog,
-        backgroundColor: AppColors.accent,
-        foregroundColor: Colors.white,
-        elevation: 1,
-        child: const Icon(Icons.person_add),
-      ),
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(24),
+              bottomRight: Radius.circular(24),
+            ),
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              child: Row(children: [
+                const Text('Friends',
+                  style: TextStyle(
+                    fontSize: 28, fontWeight: FontWeight.w700,
+                    color: Colors.white, letterSpacing: -0.5,
+                  )),
+                const SizedBox(width: 10),
+                if (totalFriends > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.25),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text('$totalFriends',
+                      style: const TextStyle(
+                        fontSize: 13, color: Colors.white, fontWeight: FontWeight.w700,
+                      )),
+                  ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: _addFriendDialog,
+                  child: Container(
+                    width: 38, height: 38,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.person_add_outlined, color: Colors.white, size: 20),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+
+        // ── Body ──────────────────────────────────────────
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.accent))
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  color: AppColors.accent,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
+                    children: [
+                      // Incoming requests
+                      if (_incoming.isNotEmpty) ...[
+                        _sectionLabel('Requests', badge: _incoming.length),
+                        const SizedBox(height: 8),
+                        _card(children: _incoming.mapIndexed((i, f) => _requestTile(f, i, _incoming.length)).toList()),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // Friends
+                      _sectionLabel('Friends'),
+                      const SizedBox(height: 8),
+                      if (_accepted.isEmpty)
+                        _emptyCard('No friends yet — tap + to add one')
+                      else
+                        _card(children: _accepted.mapIndexed((i, f) => _friendTile(f, i, _accepted.length)).toList()),
+                      const SizedBox(height: 16),
+
+                      // Challenges
+                      _sectionLabel('Challenges'),
+                      const SizedBox(height: 8),
+                      if (_challenges.isEmpty)
+                        _emptyCard('No active challenges')
+                      else
+                        _card(children: _challenges.mapIndexed((i, c) => _challengeTile(c, i, _challenges.length)).toList()),
+                      const SizedBox(height: 16),
+
+                      // Sent requests
+                      if (_sent.isNotEmpty) ...[
+                        _sectionLabel('Sent'),
+                        const SizedBox(height: 8),
+                        _card(children: _sent.mapIndexed((i, f) => _sentTile(f, i, _sent.length)).toList()),
+                      ],
+                    ],
+                  ),
+                ),
+        ),
+      ]),
     );
   }
 
-  Widget _avatar(String email) => CircleAvatar(
-        radius: 18,
-        backgroundColor: AppColors.accent.withValues(alpha: 0.12),
-        child: Text(
-          email.isNotEmpty ? email[0].toUpperCase() : '?',
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.accent),
-        ),
-      );
+  // ── Section helpers ───────────────────────────────────
 
-  Widget _header(String title, {int? badge}) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-        child: Row(children: [
-          Text(title.toUpperCase(),
-              style: const TextStyle(fontSize: 11, color: AppColors.label3,
-                  fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-          if (badge != null && badge > 0) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(10)),
-              child: Text('$badge',
-                  style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
+  Widget _sectionLabel(String title, {int? badge}) => Row(children: [
+    Text(title.toUpperCase(),
+      style: const TextStyle(
+        fontSize: 11, color: AppColors.label3,
+        fontWeight: FontWeight.w700, letterSpacing: 0.8,
+      )),
+    if (badge != null && badge > 0) ...[
+      const SizedBox(width: 6),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(10)),
+        child: Text('$badge',
+          style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
+      ),
+    ],
+  ]);
+
+  Widget _card({required List<Widget> children}) => Container(
+    decoration: BoxDecoration(
+      color: AppColors.card,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: cardShadow,
+    ),
+    clipBehavior: Clip.hardEdge,
+    child: Column(children: children),
+  );
+
+  Widget _emptyCard(String text) => Container(
+    decoration: BoxDecoration(
+      color: AppColors.card,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: cardShadow,
+    ),
+    padding: const EdgeInsets.all(20),
+    child: Center(
+      child: Text(text, style: const TextStyle(fontSize: 14, color: AppColors.label3)),
+    ),
+  );
+
+  Widget _requestTile(Map<String, dynamic> f, int i, int total) => Column(children: [
+    Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(children: [
+        _avatar(_email(f)),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(_email(f), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.label)),
+          const SizedBox(height: 2),
+          const Text('wants to connect', style: TextStyle(fontSize: 12, color: AppColors.label3)),
+        ])),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: () async { await SupabaseService.declineFriendRequest(f['id']); _load(); },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.bg2,
+              borderRadius: BorderRadius.circular(20),
             ),
-          ],
-        ]),
-      );
+            child: const Text('Decline', style: TextStyle(fontSize: 12, color: AppColors.label2, fontWeight: FontWeight.w500)),
+          ),
+        ),
+        const SizedBox(width: 6),
+        GestureDetector(
+          onTap: () async {
+            await SupabaseService.acceptFriendRequest(f['id']);
+            _snack('Connected!');
+            _load();
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.accent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text('Accept', style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600)),
+          ),
+        ),
+      ]),
+    ),
+    if (i < total - 1) const Divider(height: 1, indent: 68, endIndent: 16),
+  ]);
 
-  Widget _empty(String label) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-        child: Text(label, style: const TextStyle(fontSize: 15, color: AppColors.label3)),
-      );
+  Widget _friendTile(Map<String, dynamic> f, int i, int total) => Column(children: [
+    Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(children: [
+        _avatar(_email(f)),
+        const SizedBox(width: 12),
+        Expanded(child: Text(_email(f),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.label))),
+        GestureDetector(
+          onTap: () => _challengeDialog(f),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.accentLight,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text('Challenge',
+              style: TextStyle(fontSize: 12, color: AppColors.accent, fontWeight: FontWeight.w600)),
+          ),
+        ),
+        const SizedBox(width: 4),
+        GestureDetector(
+          onTap: () => showModalBottomSheet(
+            context: context,
+            builder: (ctx) => SafeArea(child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.person_remove_outlined, color: AppColors.destructive),
+                  title: const Text('Remove friend', style: TextStyle(color: AppColors.destructive)),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await SupabaseService.declineFriendRequest(f['id']);
+                    _load();
+                  },
+                ),
+              ],
+            )),
+          ),
+          child: const Icon(Icons.more_horiz, size: 20, color: AppColors.label3),
+        ),
+      ]),
+    ),
+    if (i < total - 1) const Divider(height: 1, indent: 68, endIndent: 16),
+  ]);
+
+  Widget _challengeTile(Map<String, dynamic> c, int i, int total) => Column(children: [
+    Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(children: [
+        Container(
+          width: 40, height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppColors.warning.withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.emoji_events, size: 20, color: AppColors.warning),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(c['title'] ?? '',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.label)),
+          const SizedBox(height: 2),
+          Text(
+            'with ${_partnerEmail(c)} · ${DateTime.now().difference(DateTime.parse(c['created_at'])).inDays}d',
+            style: const TextStyle(fontSize: 12, color: AppColors.label3),
+          ),
+        ])),
+        GestureDetector(
+          onTap: () async {
+            final ok = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Abandon?'),
+                content: Text(c['title'] ?? ''),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep going')),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Abandon', style: TextStyle(color: AppColors.destructive)),
+                  ),
+                ],
+              ),
+            );
+            if (ok == true) { await SupabaseService.abandonChallenge(c['id']); _load(); }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.destructiveBg,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(Icons.flag_outlined, size: 16, color: AppColors.destructive),
+          ),
+        ),
+      ]),
+    ),
+    if (i < total - 1) const Divider(height: 1, indent: 68, endIndent: 16),
+  ]);
+
+  Widget _sentTile(Map<String, dynamic> f, int i, int total) => Column(children: [
+    Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(children: [
+        _avatar(_email(f)),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(_email(f),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.label)),
+          const SizedBox(height: 2),
+          const Text('pending', style: TextStyle(fontSize: 12, color: AppColors.label3)),
+        ])),
+        GestureDetector(
+          onTap: () async { await SupabaseService.declineFriendRequest(f['id']); _load(); },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.bg2,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text('Cancel', style: TextStyle(fontSize: 12, color: AppColors.label2)),
+          ),
+        ),
+      ]),
+    ),
+    if (i < total - 1) const Divider(height: 1, indent: 68, endIndent: 16),
+  ]);
+
+  Widget _avatar(String email) => CircleAvatar(
+    radius: 20,
+    backgroundColor: AppColors.accent,
+    child: Text(
+      email.isNotEmpty ? email[0].toUpperCase() : '?',
+      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+    ),
+  );
 }
 
 // Helper extension

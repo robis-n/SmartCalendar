@@ -111,7 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
 
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
                 sliver: SliverList(delegate: SliverChildListDelegate([
 
                   // ── Account ───────────────────────────────────

@@ -113,11 +113,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   // ── Header ──────────────────────────────────────
                   SliverToBoxAdapter(child: _buildHeader(isAdmin, done, total, progress)),
 
+                  // ── Quick-stat chips (ref image 1 style) ────────
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(children: [
+                          _StatChip(
+                            label: 'Today',
+                            count: total,
+                            color: AppColors.accent,
+                            bg: AppColors.accentLight,
+                            selected: true,
+                          ),
+                          const SizedBox(width: 8),
+                          _StatChip(
+                            label: 'Done',
+                            count: done,
+                            color: AppColors.success,
+                            bg: AppColors.successBg,
+                          ),
+                          const SizedBox(width: 8),
+                          _StatChip(
+                            label: 'Pending',
+                            count: _tasks.where((t) => t['status'] == 'pending').length,
+                            color: AppColors.warning,
+                            bg: AppColors.warningBg,
+                          ),
+                          const SizedBox(width: 8),
+                          _StatChip(
+                            label: 'Failed',
+                            count: _tasks.where((t) => t['status'] == 'failed').length,
+                            color: AppColors.destructive,
+                            bg: AppColors.destructiveBg,
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ),
+
                   // ── Section label ───────────────────────────────
                   if (_tasks.isNotEmpty)
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 24, 20, 10),
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
                         child: Row(children: [
                           const Text("TODAY'S TASKS",
                               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
@@ -252,6 +292,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: const Text('Add task'),
         ),
       ),
+    ]),
+  );
+}
+
+// ── Stat chip (ref-1 style filter pill) ───────────────────────────────────
+
+class _StatChip extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color, bg;
+  final bool selected;
+  const _StatChip({required this.label, required this.count,
+      required this.color, required this.bg, this.selected = false});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+    decoration: BoxDecoration(
+      color: selected ? color : bg,
+      borderRadius: BorderRadius.circular(24),
+      boxShadow: selected ? [
+        BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4)),
+      ] : null,
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      if (selected) Container(
+        width: 6, height: 6,
+        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+      ),
+      if (selected) const SizedBox(width: 6),
+      Text('$count',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800,
+              color: selected ? Colors.white : color)),
+      const SizedBox(width: 4),
+      Text(label,
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+              color: selected ? Colors.white.withValues(alpha: 0.9) : color)),
     ]),
   );
 }
