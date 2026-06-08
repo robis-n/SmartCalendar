@@ -7,7 +7,6 @@ import '../../verification/screens/verification_screen.dart';
 class TaskDetailScreen extends StatefulWidget {
   final String taskId;
   const TaskDetailScreen({super.key, required this.taskId});
-
   @override
   State<TaskDetailScreen> createState() => _TaskDetailScreenState();
 }
@@ -15,133 +14,113 @@ class TaskDetailScreen extends StatefulWidget {
 class _TaskDetailScreenState extends State<TaskDetailScreen> {
   Map<String, dynamic>? _task;
   bool _loading = true;
-  bool _saving = false;
+  bool _saving  = false;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
+  void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final task = await SupabaseService.getTaskById(widget.taskId);
-    if (mounted) setState(() { _task = task; _loading = false; });
+    final t = await SupabaseService.getTaskById(widget.taskId);
+    if (mounted) setState(() { _task = t; _loading = false; });
   }
 
-  // ── Actions ────────────────────────────────────────────
-
-  Future<void> _delete() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Task'),
-        content: Text('Delete "${_task?['title']}"? This cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete', style: TextStyle(color: AppColors.destructive)),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    setState(() => _saving = true);
-    await SupabaseService.deleteTask(widget.taskId);
-    await NotificationService().cancelTaskNotifications(widget.taskId);
-    if (mounted) Navigator.of(context).pop('deleted');
-  }
+  // ── Edits ──────────────────────────────────────────────
 
   Future<void> _editTitle() async {
     final ctrl = TextEditingController(text: _task?['title'] ?? '');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit Title'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Title'),
+      content: TextField(controller: ctrl, autofocus: true,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(labelText: 'Task title'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-        ],
-      ),
-    );
+          decoration: const InputDecoration(border: InputBorder.none)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+      ],
+    ));
     if (ok != true || ctrl.text.trim().isEmpty) return;
     await SupabaseService.updateTask(widget.taskId, {'title': ctrl.text.trim()});
     _load();
   }
 
-  Future<void> _editDescription() async {
+  Future<void> _editDesc() async {
     final ctrl = TextEditingController(text: _task?['description'] ?? '');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit Description'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          maxLines: 4,
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Notes'),
+      content: TextField(controller: ctrl, autofocus: true, maxLines: 4,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(labelText: 'Description'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-        ],
-      ),
-    );
+          decoration: const InputDecoration(border: InputBorder.none)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+      ],
+    ));
     if (ok != true) return;
     await SupabaseService.updateTask(widget.taskId, {'description': ctrl.text.trim()});
     _load();
   }
 
   Future<void> _reschedule() async {
-    final current = _task?['scheduled_time'] != null
+    final cur = _task?['scheduled_time'] != null
         ? DateTime.parse(_task!['scheduled_time'])
         : DateTime.now().add(const Duration(hours: 1));
-
-    final date = await showDatePicker(
-      context: context,
-      initialDate: current,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(current),
-    );
-    if (time == null || !mounted) return;
-
-    final newDeadline = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-    await SupabaseService.updateTask(widget.taskId, {'scheduled_time': newDeadline.toIso8601String()});
+    final d = await showDatePicker(context: context, initialDate: cur,
+        firstDate: DateTime.now().subtract(const Duration(days: 1)),
+        lastDate: DateTime.now().add(const Duration(days: 365)));
+    if (d == null || !mounted) return;
+    final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(cur));
+    if (t == null || !mounted) return;
+    final dt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+    await SupabaseService.updateTask(widget.taskId, {'scheduled_time': dt.toIso8601String()});
     await NotificationService().scheduleTaskNotifications(
-      taskId: widget.taskId,
-      taskTitle: _task?['title'] ?? '',
-      deadline: newDeadline,
-    );
+        taskId: widget.taskId, taskTitle: _task?['title'] ?? '', deadline: dt);
     _load();
   }
 
-  Future<void> _changePriority(String priority) async {
-    await SupabaseService.updateTask(widget.taskId, {'priority': priority});
-    _load();
-  }
-
-  Future<void> _openVerification() async {
-    final result = await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => VerificationScreen(
-        taskId: widget.taskId,
-        taskTitle: _task?['title'] ?? '',
-      ),
+  Future<void> _delete() async {
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Delete task?'),
+      content: Text('"${_task?['title']}"'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: AppColors.destructive))),
+      ],
     ));
-    if (result != null && mounted) _load();
+    if (ok != true) return;
+    await SupabaseService.deleteTask(widget.taskId);
+    await NotificationService().cancelTaskNotifications(widget.taskId);
+    if (mounted) Navigator.of(context).pop('deleted');
+  }
+
+  Future<void> _verify() async {
+    final r = await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => VerificationScreen(taskId: widget.taskId, taskTitle: _task?['title'] ?? ''),
+    ));
+    if (r != null && mounted) _load();
+  }
+
+  Future<void> _fail() async {
+    setState(() => _saving = true);
+    await SupabaseService.updateTaskStatus(widget.taskId, 'failed');
+    await NotificationService().cancelTaskNotifications(widget.taskId);
+    if (mounted) Navigator.of(context).pop('updated');
+  }
+
+  // ── Helpers ────────────────────────────────────────────
+
+  String _fmtDate(DateTime d) {
+    const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final n = DateTime.now();
+    if (d.year == n.year && d.month == n.month && d.day == n.day) return 'Today';
+    if (d.year == n.year && d.month == n.month && d.day == n.day + 1) return 'Tomorrow';
+    return '${d.day} ${m[d.month - 1]} ${d.year}';
+  }
+
+  String _fmtTime(DateTime d) {
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
   }
 
   // ── Build ──────────────────────────────────────────────
@@ -149,222 +128,166 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg2,
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Task Detail'),
-        backgroundColor: AppColors.bg,
+        backgroundColor: Colors.white,
+        title: const Text('Task'),
         actions: [
           if (!_loading && _task != null)
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: AppColors.destructive),
+            TextButton(
               onPressed: _delete,
-              tooltip: 'Delete task',
+              child: const Text('Delete', style: TextStyle(color: AppColors.destructive)),
             ),
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(strokeWidth: 1.5))
           : _task == null
-              ? const Center(child: Text('Task not found', style: TextStyle(color: AppColors.label3)))
-              : _buildBody(),
+              ? const Center(child: Text('Not found', style: TextStyle(color: AppColors.label3)))
+              : _body(),
     );
   }
 
-  Widget _buildBody() {
-    final t = _task!;
-    final status = t['status'] as String? ?? 'pending';
+  Widget _body() {
+    final t       = _task!;
+    final status  = t['status'] as String? ?? 'pending';
     final priority = t['priority'] as String? ?? 'medium';
-    final scheduledTime = t['scheduled_time'] != null
-        ? DateTime.parse(t['scheduled_time'])
-        : null;
-    final isDone = status == 'verified' || status == 'failed';
+    final isDone  = status == 'verified' || status == 'failed';
+    final sched   = t['scheduled_time'] != null ? DateTime.parse(t['scheduled_time']) : null;
 
     final (statusLabel, statusColor) = switch (status) {
-      'verified' => ('Done ✓', AppColors.success),
-      'failed'   => ('Failed', AppColors.destructive),
-      'in_progress' => ('In Progress', AppColors.accent),
-      _          => ('Pending', AppColors.label3),
+      'verified'    => ('Completed', AppColors.success),
+      'failed'      => ('Failed',    AppColors.destructive),
+      'in_progress' => ('Active',    AppColors.accent),
+      _             => ('Pending',   AppColors.label3),
     };
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // ── Status badge ───────────────────────────────
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: statusColor.withValues(alpha: 0.3)),
-            ),
-            child: Text(statusLabel, style: TextStyle(color: statusColor, fontWeight: FontWeight.w600)),
-          ),
-        ]),
-        const SizedBox(height: 20),
+    return ListView(children: [
+      // Title
+      ListTile(
+        title: Text(t['title'] ?? '',
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+        subtitle: Text(statusLabel, style: TextStyle(fontSize: 13, color: statusColor)),
+        trailing: isDone ? null : const Icon(Icons.chevron_right, size: 18, color: AppColors.label3),
+        onTap: isDone ? null : _editTitle,
+      ),
+      const Divider(height: 1, indent: 16),
 
-        // ── Title ──────────────────────────────────────
-        _section('Title', [
-          _editRow(
-            child: Text(t['title'] ?? '', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
-            onTap: isDone ? null : _editTitle,
+      // Notes
+      ListTile(
+        title: Text(
+          (t['description'] as String?)?.isNotEmpty == true ? t['description'] : 'Add notes…',
+          style: TextStyle(
+            fontSize: 15,
+            color: (t['description'] as String?)?.isNotEmpty == true
+                ? AppColors.label
+                : AppColors.label3,
           ),
-        ]),
-        const SizedBox(height: 16),
+        ),
+        trailing: isDone ? null : const Icon(Icons.chevron_right, size: 18, color: AppColors.label3),
+        onTap: isDone ? null : _editDesc,
+      ),
+      const Divider(height: 1, indent: 16),
 
-        // ── Description ────────────────────────────────
-        _section('Description', [
-          _editRow(
-            child: Text(
-              (t['description'] as String?)?.isNotEmpty == true
-                  ? t['description']
-                  : 'No description',
-              style: TextStyle(
-                fontSize: 15,
-                color: (t['description'] as String?)?.isNotEmpty == true
-                    ? AppColors.label
-                    : AppColors.label3,
-              ),
-            ),
-            onTap: isDone ? null : _editDescription,
-          ),
-        ]),
-        const SizedBox(height: 16),
+      // Schedule
+      ListTile(
+        leading: const Icon(Icons.access_time_outlined, size: 20, color: AppColors.accent),
+        title: Text(
+          sched != null ? '${_fmtDate(sched)}, ${_fmtTime(sched)}' : 'No date',
+          style: const TextStyle(fontSize: 15),
+        ),
+        trailing: isDone ? null : const Icon(Icons.chevron_right, size: 18, color: AppColors.label3),
+        onTap: isDone ? null : _reschedule,
+      ),
+      const Divider(height: 1, indent: 16),
 
-        // ── Schedule ───────────────────────────────────
-        _section('Scheduled', [
-          _editRow(
-            child: scheduledTime != null
-                ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(_formatDate(scheduledTime), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-                    Text(_formatTime(scheduledTime), style: const TextStyle(fontSize: 13, color: AppColors.label3)),
-                  ])
-                : const Text('No date set', style: TextStyle(color: AppColors.label3)),
-            onTap: isDone ? null : _reschedule,
-          ),
-        ]),
-        const SizedBox(height: 16),
-
-        // ── Priority ───────────────────────────────────
-        _section('Priority', [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: isDone
-                ? _priorityChip(priority)
-                : SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'low', label: Text('Low')),
-                      ButtonSegment(value: 'medium', label: Text('Medium')),
-                      ButtonSegment(value: 'high', label: Text('High')),
-                    ],
-                    selected: {priority},
-                    onSelectionChanged: (val) => _changePriority(val.first),
+      // Priority
+      ListTile(
+        leading: const Icon(Icons.flag_outlined, size: 20, color: AppColors.label3),
+        title: const Text('Priority', style: TextStyle(fontSize: 15)),
+        trailing: isDone
+            ? Text(
+                priority[0].toUpperCase() + priority.substring(1),
+                style: TextStyle(fontSize: 15, color: _priColor(priority), fontWeight: FontWeight.w600),
+              )
+            : Row(mainAxisSize: MainAxisSize.min, children: [
+                for (final p in ['low', 'medium', 'high']) ...[
+                  if (p != 'low') const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () async {
+                      await SupabaseService.updateTask(widget.taskId, {'priority': p});
+                      _load();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: priority == p
+                            ? _priColor(p).withValues(alpha: 0.15)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: priority == p ? _priColor(p) : AppColors.separator,
+                        ),
+                      ),
+                      child: Text(
+                        p[0].toUpperCase() + p.substring(1),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: priority == p ? _priColor(p) : AppColors.label3,
+                          fontWeight: priority == p ? FontWeight.w600 : FontWeight.w400,
+                        ),
+                      ),
+                    ),
                   ),
-          ),
-        ]),
-        const SizedBox(height: 24),
+                ],
+              ]),
+      ),
+      const Divider(height: 1),
 
-        // ── Verify button (only for pending tasks) ─────
-        if (status == 'pending') ...[
-          FilledButton.icon(
-            onPressed: _saving ? null : _openVerification,
-            icon: const Icon(Icons.camera_alt_outlined),
-            label: const Text('Verify Completion'),
+      // Created
+      if (t['created_at'] != null) ...[
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            'Created ${_fmtDate(DateTime.parse(t['created_at']))}',
+            style: const TextStyle(fontSize: 12, color: AppColors.label3),
+          ),
+        ),
+      ],
+
+      // Actions
+      if (status == 'pending') ...[
+        const SizedBox(height: 32),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: FilledButton(
+            onPressed: _saving ? null : _verify,
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.accent,
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              minimumSize: const Size(double.infinity, 50),
             ),
+            child: const Text('Verify Completion', style: TextStyle(fontSize: 16)),
           ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _saving
-                ? null
-                : () async {
-                    setState(() => _saving = true);
-                    await SupabaseService.updateTaskStatus(widget.taskId, 'failed');
-                    await NotificationService().cancelTaskNotifications(widget.taskId);
-                    if (mounted) Navigator.of(context).pop('updated');
-                  },
-            icon: const Icon(Icons.close, color: AppColors.destructive),
-            label: const Text('Mark as Failed', style: TextStyle(color: AppColors.destructive)),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: AppColors.destructive),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-          ),
-        ],
-
-        // ── Metadata ───────────────────────────────────
-        const SizedBox(height: 24),
-        if (t['created_at'] != null)
-          Center(
-            child: Text(
-              'Created ${_formatDate(DateTime.parse(t['created_at']))}',
-              style: const TextStyle(fontSize: 12, color: AppColors.label3),
-            ),
-          ),
-        const SizedBox(height: 32),
-      ],
-    );
-  }
-
-  Widget _section(String label, List<Widget> children) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 6),
-            child: Text(
-              label.toUpperCase(),
-              style: const TextStyle(fontSize: 12, color: AppColors.label3, fontWeight: FontWeight.w600, letterSpacing: 0.5),
-            ),
-          ),
-          Container(
-            decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(12)),
-            child: Column(children: children),
-          ),
-        ],
-      );
-
-  Widget _editRow({required Widget child, VoidCallback? onTap}) => InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(children: [
-            Expanded(child: child),
-            if (onTap != null)
-              const Icon(Icons.chevron_right, size: 18, color: AppColors.label3),
-          ]),
         ),
-      );
-
-  Widget _priorityChip(String p) {
-    final (label, color) = switch (p) {
-      'high' => ('High', AppColors.destructive),
-      'medium' => ('Medium', AppColors.warning),
-      _ => ('Low', AppColors.success),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600)),
-    );
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: TextButton(
+            onPressed: _saving ? null : _fail,
+            style: TextButton.styleFrom(minimumSize: const Size(double.infinity, 44)),
+            child: const Text('Mark as Failed',
+                style: TextStyle(color: AppColors.destructive, fontSize: 15)),
+          ),
+        ),
+      ],
+      const SizedBox(height: 40),
+    ]);
   }
 
-  String _formatDate(DateTime d) {
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    final now = DateTime.now();
-    if (d.year == now.year && d.month == now.month && d.day == now.day) return 'Today';
-    if (d.year == now.year && d.month == now.month && d.day == now.day + 1) return 'Tomorrow';
-    return '${d.day} ${months[d.month - 1]} ${d.year}';
-  }
-
-  String _formatTime(DateTime d) {
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    final m = d.minute.toString().padLeft(2, '0');
-    return '$h:$m ${d.hour >= 12 ? 'PM' : 'AM'}';
-  }
+  Color _priColor(String p) => switch (p) {
+        'high'   => AppColors.destructive,
+        'medium' => AppColors.warning,
+        _        => AppColors.success,
+      };
 }
