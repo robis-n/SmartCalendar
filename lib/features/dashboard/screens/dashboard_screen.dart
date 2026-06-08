@@ -82,6 +82,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return 'Late night 🌟';
   }
 
+  // Time-of-day adaptive gradient — like the meditation app reference
+  List<Color> get _headerGradient {
+    final h = DateTime.now().hour;
+    if (h >= 5  && h < 9)  return const [Color(0xFFFF8C42), Color(0xFFFF5C7B)]; // sunrise
+    if (h >= 9  && h < 12) return const [Color(0xFFFFAB40), Color(0xFFFF6D3B)]; // morning
+    if (h >= 12 && h < 15) return const [Color(0xFF4FACFE), Color(0xFF00C6FF)]; // midday
+    if (h >= 15 && h < 17) return const [Color(0xFF43CBFF), Color(0xFF9708CC)]; // afternoon
+    if (h >= 17 && h < 20) return const [Color(0xFF7C5CFC), Color(0xFF5B3FD9)]; // evening (violet)
+    if (h >= 20 && h < 22) return const [Color(0xFF4A1C96), Color(0xFF1A0533)]; // dusk
+    return const [Color(0xFF0F0C29), Color(0xFF302B63)];                         // night
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAdmin = _tier == AppConstants.tierAdmin;
@@ -123,7 +135,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     SliverFillRemaining(child: _buildEmpty())
                   else
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
                           (ctx, i) => Padding(
@@ -147,9 +159,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildHeader(bool isAdmin, int done, int total, double progress) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Color(0xFF7C5CFC), Color(0xFF5B3FD9)],
+          colors: _headerGradient,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),

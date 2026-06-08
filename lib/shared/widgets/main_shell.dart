@@ -5,21 +5,22 @@ import '../../core/theme/app_theme.dart';
 class MainShell extends StatefulWidget {
   final Widget child;
   const MainShell({super.key, required this.child});
-
   @override
   State<MainShell> createState() => _MainShellState();
 }
 
 class _MainShellState extends State<MainShell> {
   int _tabIndex = 0;
-  int _direction = 1; // +1 = going right (slide in from right), -1 = going left
+  int _direction = 1;
 
-  static const _routes = [
-    '/dashboard',
-    '/calendar',
-    '/friends',
-    '/analytics',
-    '/settings',
+  static const _routes = ['/dashboard', '/calendar', '/friends', '/analytics', '/settings'];
+
+  static const _items = [
+    _NavItem(Icons.home_rounded,            Icons.home_outlined,            'Home'),
+    _NavItem(Icons.calendar_month_rounded,  Icons.calendar_month_outlined,  'Calendar'),
+    _NavItem(Icons.people_rounded,          Icons.people_outline,           'Friends'),
+    _NavItem(Icons.bar_chart_rounded,       Icons.bar_chart_outlined,       'Stats'),
+    _NavItem(Icons.person_rounded,          Icons.person_outline_rounded,   'Profile'),
   ];
 
   int _indexFor(String path) {
@@ -40,10 +41,9 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final path = GoRouterState.of(context).uri.path;
+    final path       = GoRouterState.of(context).uri.path;
     final routeIndex = _indexFor(path);
 
-    // Sync _tabIndex when route changes externally (deep-link / initial load)
     if (routeIndex != _tabIndex) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _tabIndex = routeIndex);
@@ -51,18 +51,18 @@ class _MainShellState extends State<MainShell> {
     }
 
     return Scaffold(
+      extendBody: true,
+      backgroundColor: AppColors.bg,
       body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 240),
+        duration: const Duration(milliseconds: 220),
         transitionBuilder: (child, animation) {
-          // Determine if this child is the entering one or the leaving one
           final isEntering = child.key == ValueKey(routeIndex);
           final begin = isEntering
-              ? Offset(_direction.toDouble(), 0)   // enter from right or left
-              : Offset(-_direction.toDouble(), 0); // exit to left or right
+              ? Offset(_direction.toDouble(), 0)
+              : Offset(-_direction.toDouble(), 0);
           return SlideTransition(
-            position: Tween<Offset>(begin: begin, end: Offset.zero).animate(
-              CurvedAnimation(parent: animation, curve: Curves.easeInOut),
-            ),
+            position: Tween<Offset>(begin: begin, end: Offset.zero)
+                .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
             child: child,
           );
         },
@@ -72,54 +72,75 @@ class _MainShellState extends State<MainShell> {
         ),
         child: KeyedSubtree(key: ValueKey(routeIndex), child: widget.child),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: AppColors.card,
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.accent.withValues(alpha: 0.08),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: NavigationBar(
-          selectedIndex: routeIndex,
-          backgroundColor: AppColors.card,
-          elevation: 0,
-          height: 60,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          indicatorColor: AppColors.accentLight,
-          onDestinationSelected: (i) => _onTab(context, i),
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded, color: AppColors.accent),
-              label: 'Home',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.calendar_month_outlined),
-              selectedIcon: Icon(Icons.calendar_month_rounded, color: AppColors.accent),
-              label: 'Calendar',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.people_outline),
-              selectedIcon: Icon(Icons.people_rounded, color: AppColors.accent),
-              label: 'Friends',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.bar_chart_outlined),
-              selectedIcon: Icon(Icons.bar_chart_rounded, color: AppColors.accent),
-              label: 'Stats',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded, color: AppColors.accent),
-              label: 'Profile',
-            ),
-          ],
+
+      // ── Floating dark pill nav ──────────────────────────────────────────
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Container(
+          height: 68,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1C1B2E),
+            borderRadius: BorderRadius.circular(34),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.accent.withValues(alpha: 0.35),
+                blurRadius: 28,
+                offset: const Offset(0, 10),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: List.generate(_items.length, (i) {
+              final item    = _items[i];
+              final selected = routeIndex == i;
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _onTab(context, i),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  padding: selected
+                      ? const EdgeInsets.symmetric(horizontal: 16, vertical: 10)
+                      : const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: selected ? AppColors.accent : Colors.transparent,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(
+                      selected ? item.activeIcon : item.icon,
+                      color: selected ? Colors.white : Colors.white.withValues(alpha: 0.45),
+                      size: 22,
+                    ),
+                    if (selected) ...[
+                      const SizedBox(width: 6),
+                      Text(item.label,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2,
+                          )),
+                    ],
+                  ]),
+                ),
+              );
+            }),
+          ),
         ),
       ),
     );
   }
+}
+
+class _NavItem {
+  final IconData activeIcon, icon;
+  final String label;
+  const _NavItem(this.activeIcon, this.icon, this.label);
 }
