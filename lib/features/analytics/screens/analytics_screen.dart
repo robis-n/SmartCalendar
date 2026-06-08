@@ -4,189 +4,222 @@ import '../../../services/supabase_service.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
-
   @override
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  Map<String, dynamic> _stats = {};
+  Map<String, dynamic> _s = {};
   bool _loading = true;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
+  void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final stats = await SupabaseService.getAnalyticsSummary();
-    setState(() {
-      _stats = stats;
-      _loading = false;
-    });
+    final s = await SupabaseService.getAnalyticsSummary();
+    if (mounted) setState(() { _s = s; _loading = false; });
   }
 
-  int get _total => (_stats['total'] as int?) ?? 0;
-  int get _done => (_stats['done'] as int?) ?? 0;
-  int get _failed => (_stats['failed'] as int?) ?? 0;
-  int get _pending => (_stats['pending'] as int?) ?? 0;
-  double get _rate => (_stats['rate'] as num?)?.toDouble() ?? 0;
-  int get _weekTotal => (_stats['week_total'] as int?) ?? 0;
-  int get _weekDone => (_stats['week_done'] as int?) ?? 0;
-  int get _highPriority => (_stats['high_priority'] as int?) ?? 0;
+  int    get total     => (_s['total']         as int?)  ?? 0;
+  int    get done      => (_s['done']          as int?)  ?? 0;
+  int    get failed    => (_s['failed']        as int?)  ?? 0;
+  int    get pending   => (_s['pending']       as int?)  ?? 0;
+  double get rate      => (_s['rate']          as num?)?.toDouble() ?? 0;
+  int    get weekTotal => (_s['week_total']    as int?)  ?? 0;
+  int    get weekDone  => (_s['week_done']     as int?)  ?? 0;
+  int    get highPrio  => (_s['high_priority'] as int?)  ?? 0;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg2,
-      appBar: AppBar(
-        title: const Text('Analytics'),
-        backgroundColor: AppColors.bg,
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  // ── Overall completion rate ─────────────
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: AppColors.bg,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(children: [
-                      Text(
-                        '${(_rate * 100).round()}%',
-                        style: const TextStyle(
-                          fontSize: 64,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.accent,
-                          letterSpacing: -2,
-                        ),
-                      ),
-                      const Text(
-                        'All-Time Completion Rate',
-                        style: TextStyle(fontSize: 13, color: AppColors.label3),
-                      ),
-                      const SizedBox(height: 16),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: _rate,
-                          minHeight: 6,
-                          backgroundColor: AppColors.separator,
-                          color: AppColors.accent,
-                        ),
-                      ),
-                    ]),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ── Stats row ───────────────────────────
-                  Row(children: [
-                    _statTile('Total', _total.toString(), AppColors.accent),
-                    const SizedBox(width: 8),
-                    _statTile('Done', _done.toString(), AppColors.success),
-                    const SizedBox(width: 8),
-                    _statTile('Pending', _pending.toString(), AppColors.warning),
-                    const SizedBox(width: 8),
-                    _statTile('Failed', _failed.toString(), AppColors.destructive),
-                  ]),
-                  const SizedBox(height: 12),
-
-                  // ── This week ───────────────────────────
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.bg,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-                        child: Row(children: [
-                          const Text('THIS WEEK', style: TextStyle(fontSize: 12, color: AppColors.label3, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-                          const Spacer(),
-                          Text(
-                            '$_weekDone / $_weekTotal tasks',
-                            style: const TextStyle(fontSize: 13, color: AppColors.label3),
+      backgroundColor: AppColors.bg,
+      body: RefreshIndicator(
+        color: AppColors.accent,
+        onRefresh: _load,
+        child: CustomScrollView(slivers: [
+          // Gradient header
+          SliverToBoxAdapter(
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF7C5CFC), Color(0xFF5B3FD9)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+                  child: _loading
+                      ? const SizedBox(height: 100,
+                          child: Center(child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2)))
+                      : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const Text('Analytics',
+                              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800,
+                                  color: Colors.white, letterSpacing: -0.8)),
+                          const SizedBox(height: 16),
+                          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                            Text('${(rate * 100).round()}%',
+                                style: const TextStyle(fontSize: 64, fontWeight: FontWeight.w900,
+                                    color: Colors.white, letterSpacing: -3, height: 1)),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10, left: 10),
+                              child: Text('completion',
+                                  style: TextStyle(fontSize: 15,
+                                      color: Colors.white.withValues(alpha: 0.75))),
+                            ),
+                          ]),
+                          const SizedBox(height: 12),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: rate, minHeight: 6,
+                              backgroundColor: Colors.white.withValues(alpha: 0.2),
+                              valueColor: const AlwaysStoppedAnimation(Colors.white),
+                            ),
                           ),
                         ]),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: _weekTotal == 0 ? 0 : _weekDone / _weekTotal,
-                            minHeight: 8,
-                            backgroundColor: AppColors.separator,
-                            color: AppColors.success,
-                          ),
-                        ),
-                      ),
-                    ]),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ── Breakdown ───────────────────────────
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.bg,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(children: [
-                      _row('Tasks Verified', '$_done / $_total', AppColors.success),
-                      const Divider(height: 0, indent: 16),
-                      _row('Tasks Failed', '$_failed', AppColors.destructive),
-                      const Divider(height: 0, indent: 16),
-                      _row('High Priority', '$_highPriority', AppColors.destructive),
-                      const Divider(height: 0, indent: 16),
-                      _row('This Week', '$_weekTotal tasks', AppColors.accent),
-                    ]),
-                  ),
-
-                  if (_total == 0) ...[
-                    const SizedBox(height: 32),
-                    Center(
-                      child: Column(children: [
-                        const Icon(Icons.bar_chart_outlined, size: 48, color: AppColors.separator),
-                        const SizedBox(height: 12),
-                        const Text('No data yet', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w500)),
-                        const SizedBox(height: 4),
-                        const Text('Create tasks to see your analytics', style: TextStyle(fontSize: 15, color: AppColors.label3)),
-                      ]),
-                    ),
-                  ],
-                  const SizedBox(height: 32),
-                ],
+                ),
               ),
             ),
+          ),
+
+          if (!_loading) ...[
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+              sliver: SliverGrid(
+                delegate: SliverChildListDelegate([
+                  _StatCard(label: 'Total',   value: '$total',   icon: Icons.list_rounded,
+                      color: AppColors.accent,      bg: AppColors.accentLight),
+                  _StatCard(label: 'Done',    value: '$done',    icon: Icons.check_circle_rounded,
+                      color: AppColors.success,     bg: AppColors.successBg),
+                  _StatCard(label: 'Failed',  value: '$failed',  icon: Icons.cancel_rounded,
+                      color: AppColors.destructive, bg: AppColors.destructiveBg),
+                  _StatCard(label: 'Pending', value: '$pending', icon: Icons.pending_rounded,
+                      color: AppColors.warning,     bg: AppColors.warningBg),
+                ]),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12,
+                  childAspectRatio: 1.55,
+                ),
+              ),
+            ),
+
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                child: Column(children: [
+                  _InfoRow(
+                    icon: Icons.calendar_today_rounded,
+                    iconColor: AppColors.accent, iconBg: AppColors.accentLight,
+                    title: '$weekDone of $weekTotal tasks',
+                    subtitle: 'completed this week',
+                    trailing: weekTotal > 0
+                        ? '${(weekDone / weekTotal * 100).round()}%' : null,
+                  ),
+                  if (highPrio > 0) ...[
+                    const SizedBox(height: 12),
+                    _InfoRow(
+                      icon: Icons.flag_rounded,
+                      iconColor: AppColors.destructive, iconBg: AppColors.destructiveBg,
+                      title: '$highPrio high priority',
+                      subtitle: 'tasks need attention',
+                    ),
+                  ],
+                ]),
+              ),
+            ),
+
+            if (total == 0)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(48),
+                  child: Column(children: const [
+                    Text('📊', style: TextStyle(fontSize: 48)),
+                    SizedBox(height: 12),
+                    Text('No data yet', style: TextStyle(fontSize: 18,
+                        fontWeight: FontWeight.w700, color: AppColors.label3)),
+                    SizedBox(height: 4),
+                    Text('Complete some tasks to see your stats',
+                        style: TextStyle(fontSize: 14, color: AppColors.label3)),
+                  ]),
+                ),
+              ),
+          ],
+          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+        ]),
+      ),
     );
   }
+}
 
-  Widget _statTile(String label, String value, Color color) => Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(12)),
-          child: Column(children: [
-            Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: color)),
-            const SizedBox(height: 2),
-            Text(label, style: const TextStyle(fontSize: 11, color: AppColors.label3)),
-          ]),
-        ),
-      );
+class _StatCard extends StatelessWidget {
+  final String label, value;
+  final IconData icon;
+  final Color color, bg;
+  const _StatCard({required this.label, required this.value,
+      required this.icon, required this.color, required this.bg});
 
-  Widget _row(String label, String value, Color color) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(children: [
-          Text(label, style: const TextStyle(fontSize: 15)),
-          const Spacer(),
-          Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: color)),
-        ]),
-      );
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: AppColors.card,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: cardShadow,
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Container(
+        width: 36, height: 36,
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+        child: Icon(icon, color: color, size: 18),
+      ),
+      const Spacer(),
+      Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900,
+          color: color, letterSpacing: -0.5, height: 1)),
+      const SizedBox(height: 2),
+      Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+          color: AppColors.label3)),
+    ]),
+  );
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor, iconBg;
+  final String title, subtitle;
+  final String? trailing;
+  const _InfoRow({required this.icon, required this.iconColor, required this.iconBg,
+      required this.title, required this.subtitle, this.trailing});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: AppColors.card,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: cardShadow,
+    ),
+    child: Row(children: [
+      Container(
+        width: 44, height: 44,
+        decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(12)),
+        child: Icon(icon, color: iconColor, size: 22),
+      ),
+      const SizedBox(width: 14),
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800,
+            color: AppColors.label, letterSpacing: -0.3)),
+        Text(subtitle, style: const TextStyle(fontSize: 13, color: AppColors.label3)),
+      ]),
+      if (trailing != null) ...[
+        const Spacer(),
+        Text(trailing!, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
+            color: AppColors.accent)),
+      ],
+    ]),
+  );
 }

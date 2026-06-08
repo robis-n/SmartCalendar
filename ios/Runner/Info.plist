@@ -4,6 +4,14 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>SmartCalendar needs your camera to verify task completion with a photo.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SmartCalendar needs photo library access to attach verification photos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>SmartCalendar would like to save verification photos to your library.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Microphone access is required for video verification.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

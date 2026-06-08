@@ -6,263 +6,254 @@ import '../../../services/supabase_service.dart';
 
 class AddTaskScreen extends StatefulWidget {
   const AddTaskScreen({super.key});
-
   @override
   State<AddTaskScreen> createState() => _AddTaskScreenState();
 }
 
 class _AddTaskScreenState extends State<AddTaskScreen> {
-  final _titleController = TextEditingController();
-  final _descController = TextEditingController();
-  int _estimatedMinutes = 30;
-  String _priority = 'medium';
-  bool _loading = false;
-  DateTime _scheduledTime = DateTime.now().add(const Duration(hours: 1));
-
-  final List<int> _durationOptions = [15, 30, 45, 60, 90, 120];
+  final _title = TextEditingController();
+  final _desc  = TextEditingController();
+  DateTime _deadline = DateTime.now().add(const Duration(hours: 1));
+  String   _priority = 'medium';
+  bool     _saving   = false;
 
   @override
-  void dispose() {
-    _titleController.dispose();
-    _descController.dispose();
-    super.dispose();
-  }
+  void dispose() { _title.dispose(); _desc.dispose(); super.dispose(); }
 
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
+    final d = await showDatePicker(
       context: context,
-      initialDate: _scheduledTime,
+      initialDate: _deadline,
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: const ColorScheme.light(primary: AppColors.accent),
+        ),
+        child: child!,
+      ),
     );
-    if (picked != null) {
-      setState(() {
-        _scheduledTime = DateTime(
-          picked.year,
-          picked.month,
-          picked.day,
-          _scheduledTime.hour,
-          _scheduledTime.minute,
-        );
-      });
+    if (d != null && mounted) {
+      setState(() => _deadline = DateTime(d.year, d.month, d.day, _deadline.hour, _deadline.minute));
     }
   }
 
   Future<void> _pickTime() async {
-    final picked = await showTimePicker(
+    final t = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(_scheduledTime),
+      initialTime: TimeOfDay.fromDateTime(_deadline),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: const ColorScheme.light(primary: AppColors.accent),
+        ),
+        child: child!,
+      ),
     );
-    if (picked != null) {
-      setState(() {
-        _scheduledTime = DateTime(
-          _scheduledTime.year,
-          _scheduledTime.month,
-          _scheduledTime.day,
-          picked.hour,
-          picked.minute,
-        );
-      });
+    if (t != null && mounted) {
+      setState(() => _deadline = DateTime(_deadline.year, _deadline.month, _deadline.day, t.hour, t.minute));
     }
   }
 
-  Future<void> _saveTask() async {
-    if (_titleController.text.trim().isEmpty) {
-      _showError('Please enter a task title');
+  Future<void> _save() async {
+    if (_title.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Give your task a title first')));
       return;
     }
-    setState(() => _loading = true);
+    setState(() => _saving = true);
     try {
-      final userId = Supabase.instance.client.auth.currentUser?.id;
+      final uid = Supabase.instance.client.auth.currentUser?.id;
       final created = await SupabaseService.createTask({
-        'user_id': userId,
-        'title': _titleController.text.trim(),
-        'description': _descController.text.trim(),
-        'scheduled_time': _scheduledTime.toIso8601String(),
-        'status': 'pending',
-        'ai_generated': false,
-        'priority': _priority,
+        'user_id':        uid,
+        'title':          _title.text.trim(),
+        'description':    _desc.text.trim(),
+        'scheduled_time': _deadline.toIso8601String(),
+        'status':         'pending',
+        'ai_generated':   false,
+        'priority':       _priority,
       });
-      // Schedule reminder notification
       await NotificationService().scheduleTaskNotifications(
-        taskId: created['id'],
-        taskTitle: _titleController.text.trim(),
-        deadline: _scheduledTime,
-      );
+          taskId: created['id'], taskTitle: _title.text.trim(), deadline: _deadline);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
-      _showError('Failed to save task: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _saving = false);
     }
   }
 
-  void _showError(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: AppColors.destructive),
-      );
-
-  String get _formattedDate {
-    final now = DateTime.now();
-    final d = _scheduledTime;
-    if (d.year == now.year && d.month == now.month && d.day == now.day) return 'Today';
-    if (d.year == now.year && d.month == now.month && d.day == now.day + 1) return 'Tomorrow';
-    return '${d.day} ${_months[d.month - 1]} ${d.year}';
+  String get _dateLabel {
+    final now = _deadline, today = DateTime.now();
+    if (now.year == today.year && now.month == today.month && now.day == today.day) return 'Today';
+    const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${now.day} ${m[now.month - 1]}';
   }
 
-  String get _formattedTime {
-    final h = _scheduledTime.hour;
-    final m = _scheduledTime.minute.toString().padLeft(2, '0');
-    final suffix = h >= 12 ? 'PM' : 'AM';
-    final hour = h % 12 == 0 ? 12 : h % 12;
-    return '$hour:$m $suffix';
+  String get _timeLabel {
+    final h = _deadline.hour;
+    final m = _deadline.minute.toString().padLeft(2, '0');
+    return '${h % 12 == 0 ? 12 : h % 12}:$m ${h >= 12 ? 'PM' : 'AM'}';
   }
-
-  static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
+      backgroundColor: AppColors.bg,
       appBar: AppBar(
-        title: const Text('New Task'),
         backgroundColor: AppColors.bg,
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: AppColors.label2),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text('New Task'),
         actions: [
-          TextButton(
-            onPressed: _loading ? null : _saveTask,
-            child: const Text('Save', style: TextStyle(color: AppColors.accent, fontSize: 17, fontWeight: FontWeight.w600)),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: _saving
+                ? const SizedBox(width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent))
+                : GestureDetector(
+                    onTap: _save,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF9B7AFF), Color(0xFF5B3FD9)],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text('Save',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700,
+                              fontSize: 14)),
+                    ),
+                  ),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Title ──────────────────────────────────
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'Task title *',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.task_alt),
-              ),
-              textCapitalization: TextCapitalization.sentences,
-              autofocus: true,
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+        children: [
+          // Title + notes card
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.card,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: cardShadow,
             ),
-            const SizedBox(height: 16),
-
-            // ── Description ────────────────────────────
-            TextField(
-              controller: _descController,
-              decoration: const InputDecoration(
-                labelText: 'Description (optional)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.notes),
-              ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 24),
-
-            // ── Schedule ────────────────────────────────
-            Text('Schedule', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-            Row(children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: _pickDate,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: theme.dividerColor),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(children: [
-                      const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.accent),
-                      const SizedBox(width: 10),
-                      Text(_formattedDate, style: const TextStyle(fontSize: 15, color: AppColors.label)),
-                    ]),
-                  ),
+            child: Column(children: [
+              TextField(
+                controller: _title,
+                autofocus: true,
+                textCapitalization: TextCapitalization.sentences,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700,
+                    color: AppColors.label, letterSpacing: -0.3),
+                decoration: const InputDecoration(
+                  hintText: 'What do you need to do?',
+                  hintStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w500,
+                      color: AppColors.label3, letterSpacing: -0.3),
+                  border: InputBorder.none, enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.fromLTRB(18, 18, 18, 10),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: GestureDetector(
-                  onTap: _pickTime,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: theme.dividerColor),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(children: [
-                      const Icon(Icons.access_time_outlined, size: 18, color: AppColors.accent),
-                      const SizedBox(width: 10),
-                      Text(_formattedTime, style: const TextStyle(fontSize: 15, color: AppColors.label)),
-                    ]),
-                  ),
+              const Divider(height: 1, indent: 18, endIndent: 18),
+              TextField(
+                controller: _desc,
+                textCapitalization: TextCapitalization.sentences,
+                maxLines: null, minLines: 2,
+                style: const TextStyle(fontSize: 15, color: AppColors.label2),
+                decoration: const InputDecoration(
+                  hintText: 'Add notes…',
+                  hintStyle: TextStyle(color: AppColors.label3, fontSize: 15),
+                  border: InputBorder.none, enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.fromLTRB(18, 10, 18, 18),
                 ),
               ),
             ]),
-            const SizedBox(height: 24),
+          ),
+          const SizedBox(height: 20),
 
-            // ── Duration ───────────────────────────────
-            Text('Estimated Duration', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _durationOptions
-                  .map((min) => ChoiceChip(
-                        label: Text(
-                          min < 60
-                              ? '${min}m'
-                              : min % 60 == 0
-                                  ? '${min ~/ 60}h'
-                                  : '${min ~/ 60}h ${min % 60}m',
-                        ),
-                        selected: _estimatedMinutes == min,
-                        onSelected: (_) => setState(() => _estimatedMinutes = min),
-                      ))
-                  .toList(),
-            ),
-            const SizedBox(height: 24),
+          // Schedule
+          _sectionLabel('SCHEDULE'),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: _chipButton(
+              icon: Icons.calendar_today_outlined,
+              label: _dateLabel, onTap: _pickDate,
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: _chipButton(
+              icon: Icons.access_time_outlined,
+              label: _timeLabel, onTap: _pickTime,
+            )),
+          ]),
+          const SizedBox(height: 20),
 
-            // ── Priority ───────────────────────────────
-            Text('Priority', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'low', label: Text('Low'), icon: Icon(Icons.arrow_downward, size: 14)),
-                ButtonSegment(value: 'medium', label: Text('Medium'), icon: Icon(Icons.remove, size: 14)),
-                ButtonSegment(value: 'high', label: Text('High'), icon: Icon(Icons.arrow_upward, size: 14)),
-              ],
-              selected: {_priority},
-              onSelectionChanged: (val) => setState(() => _priority = val.first),
-            ),
-            const SizedBox(height: 36),
-
-            // ── Save button ────────────────────────────
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _loading ? null : _saveTask,
-                icon: _loading
-                    ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.add_task),
-                label: Text(_loading ? 'Saving...' : 'Create Task', style: const TextStyle(fontSize: 16)),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: AppColors.accent,
+          // Priority
+          _sectionLabel('PRIORITY'),
+          const SizedBox(height: 8),
+          Row(children: [
+            for (final p in [
+              ('low',    '🟢', 'Low',    AppColors.success,     AppColors.successBg),
+              ('medium', '🟡', 'Medium', AppColors.warning,     AppColors.warningBg),
+              ('high',   '🔴', 'High',   AppColors.destructive, AppColors.destructiveBg),
+            ]) ...[
+              if (p.$1 != 'low') const SizedBox(width: 8),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _priority = p.$1),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: _priority == p.$1 ? p.$4.withValues(alpha: 0.15) : AppColors.card,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _priority == p.$1 ? p.$4 : AppColors.separator,
+                        width: _priority == p.$1 ? 1.5 : 1,
+                      ),
+                      boxShadow: _priority == p.$1 ? cardShadow : null,
+                    ),
+                    child: Column(children: [
+                      Text(p.$2, style: const TextStyle(fontSize: 18)),
+                      const SizedBox(height: 2),
+                      Text(p.$3, style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w700,
+                        color: _priority == p.$1 ? p.$4 : AppColors.label3,
+                      )),
+                    ]),
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ]),
+        ],
       ),
     );
   }
+
+  Widget _sectionLabel(String t) => Text(t,
+      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+          color: AppColors.label3, letterSpacing: 0.8));
+
+  Widget _chipButton({required IconData icon, required String label, required VoidCallback onTap}) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.separator),
+            boxShadow: cardShadow,
+          ),
+          child: Row(children: [
+            Icon(icon, size: 16, color: AppColors.accent),
+            const SizedBox(width: 8),
+            Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+                color: AppColors.label2)),
+          ]),
+        ),
+      );
 }

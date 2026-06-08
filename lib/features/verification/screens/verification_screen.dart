@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -162,7 +163,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                                   return Image.memory(snap.data!, fit: BoxFit.cover);
                                 },
                               )
-                            : Image.network(_photo!.path, fit: BoxFit.cover,
+                            : Image.file(File(_photo!.path), fit: BoxFit.cover,
                                 errorBuilder: (ctx, err, st) => _emptyPhoto()),
                   ),
                 ),

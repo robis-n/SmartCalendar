@@ -73,42 +73,49 @@ class _MainShellState extends State<MainShell> {
         child: KeyedSubtree(key: ValueKey(routeIndex), child: widget.child),
       ),
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.bg,
-          border: Border(top: BorderSide(color: AppColors.separator, width: 0.5)),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.accent.withValues(alpha: 0.08),
+              blurRadius: 20,
+              offset: const Offset(0, -4),
+            ),
+          ],
         ),
         child: NavigationBar(
           selectedIndex: routeIndex,
-          backgroundColor: AppColors.bg,
+          backgroundColor: AppColors.card,
           elevation: 0,
-          height: 56,
+          height: 60,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          indicatorColor: AppColors.accentLight,
           onDestinationSelected: (i) => _onTab(context, i),
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home),
+              selectedIcon: Icon(Icons.home_rounded, color: AppColors.accent),
               label: 'Home',
             ),
             NavigationDestination(
               icon: Icon(Icons.calendar_month_outlined),
-              selectedIcon: Icon(Icons.calendar_month),
+              selectedIcon: Icon(Icons.calendar_month_rounded, color: AppColors.accent),
               label: 'Calendar',
             ),
             NavigationDestination(
               icon: Icon(Icons.people_outline),
-              selectedIcon: Icon(Icons.people),
+              selectedIcon: Icon(Icons.people_rounded, color: AppColors.accent),
               label: 'Friends',
             ),
             NavigationDestination(
               icon: Icon(Icons.bar_chart_outlined),
-              selectedIcon: Icon(Icons.bar_chart),
-              label: 'Analytics',
+              selectedIcon: Icon(Icons.bar_chart_rounded, color: AppColors.accent),
+              label: 'Stats',
             ),
             NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings),
-              label: 'Settings',
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded, color: AppColors.accent),
+              label: 'Profile',
             ),
           ],
         ),
