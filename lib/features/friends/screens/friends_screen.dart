@@ -102,7 +102,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
               }
             },
             child: loading
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.bg))
                 : const Text('Send'),
           ),
         ],
@@ -252,7 +252,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
         decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(10)),
         child: Text('$badge',
-          style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
+          style: const TextStyle(fontSize: 10, color: AppColors.bg, fontWeight: FontWeight.w700)),
       ),
     ],
   ]);
@@ -315,7 +315,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
               color: AppColors.accent,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Text('Accept', style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600)),
+            child: const Text('Accept', style: TextStyle(fontSize: 12, color: AppColors.bg, fontWeight: FontWeight.w600)),
           ),
         ),
       ]),
@@ -457,7 +457,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     backgroundColor: AppColors.accent,
     child: Text(
       email.isNotEmpty ? email[0].toUpperCase() : '?',
-      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.bg),
     ),
   );
 }

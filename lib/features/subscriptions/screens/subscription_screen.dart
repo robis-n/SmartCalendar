@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../services/supabase_service.dart';
 
 class SubscriptionScreen extends StatefulWidget {
@@ -40,8 +41,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isCurrent ? color : Colors.grey.shade300, width: isCurrent ? 2 : 1),
-        color: isCurrent ? color.withValues(alpha:0.05) : null,
+        border: Border.all(color: isCurrent ? color : AppColors.separator, width: isCurrent ? 2 : 0.5),
+        color: isCurrent ? color.withValues(alpha: 0.10) : AppColors.card,
       ),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -52,14 +53,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               Text(tier.toUpperCase(), style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 16)),
               if (recommended) ...[
                 const SizedBox(width: 8),
-                Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)), child: const Text('BEST', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))),
+                Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)), child: const Text('BEST', style: TextStyle(color: AppColors.bg, fontSize: 10, fontWeight: FontWeight.bold))),
               ],
               const Spacer(),
               if (isCurrent) Icon(Icons.check_circle, color: color),
             ]),
             const SizedBox(height: 4),
             Text(price, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-            Text(period, style: const TextStyle(color: Colors.grey)),
+            Text(period, style: const TextStyle(color: AppColors.label3)),
             const SizedBox(height: 16),
             ...features.map((f) => Padding(
               padding: const EdgeInsets.only(bottom: 6),
@@ -106,7 +107,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final isAdmin = _currentTier == AppConstants.tierAdmin;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Subscription')),
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        title: const Text('Subscription'),
+        backgroundColor: AppColors.bg,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -116,17 +121,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFF6C63FF), Color(0xFF3F3D9F)]),
+                  gradient: const LinearGradient(colors: [Color(0xFFE8C890), Color(0xFFB08040)]),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: const Row(children: [
-                  Icon(Icons.star, color: Colors.amber),
+                  Icon(Icons.star_rounded, color: AppColors.bg),
                   SizedBox(width: 12),
                   Expanded(child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('CEO Admin Access', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                      Text('All features unlocked', style: TextStyle(color: Colors.white70)),
+                      Text('CEO Admin Access', style: TextStyle(color: AppColors.bg, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text('All features unlocked', style: TextStyle(color: AppColors.bg, fontSize: 13)),
                     ],
                   )),
                 ]),
@@ -138,17 +143,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             _planCard(
               tier: 'free', price: '\$0', period: 'forever',
               features: ['10 tasks/month', '1 calendar integration', 'Basic scheduling', 'Limited AI suggestions'],
-              color: Colors.grey, recommended: false,
+              color: AppColors.label3, recommended: false,
             ),
             _planCard(
               tier: 'pro', price: '\$5', period: 'per month',
               features: ['Unlimited tasks', 'All calendar integrations', 'AI smart scheduling', 'Photo verification', 'Full analytics'],
-              color: const Color(0xFF6C63FF), recommended: true,
+              color: AppColors.accent, recommended: true,
             ),
             _planCard(
               tier: 'premium', price: '\$10', period: 'per month',
               features: ['Everything in Pro', 'Friends & challenges', 'Priority AI processing', 'Advanced analytics', 'Early access to features'],
-              color: Colors.orange, recommended: false,
+              color: AppColors.warning, recommended: false,
             ),
           ],
         ),
