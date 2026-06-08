@@ -79,18 +79,19 @@ class _MainShellState extends State<MainShell> {
         child: Container(
           height: 68,
           decoration: BoxDecoration(
-            color: const Color(0xFF1C1B2E),
+            color: const Color(0xFF17162A),
             borderRadius: BorderRadius.circular(34),
+            border: Border.all(color: const Color(0xFF252440), width: 0.5),
             boxShadow: [
               BoxShadow(
-                color: AppColors.accent.withValues(alpha: 0.35),
+                color: const Color(0xFFD4AF7A).withValues(alpha: 0.18),
                 blurRadius: 28,
                 offset: const Offset(0, 10),
               ),
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.25),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+                color: Colors.black.withValues(alpha: 0.40),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
               ),
             ],
           ),

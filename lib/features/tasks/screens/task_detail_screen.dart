@@ -350,24 +350,24 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     height: 54,
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF7C5CFC), Color(0xFF5B3FD9)],
+                        colors: [Color(0xFFE8C890), Color(0xFFB08040)],
                         begin: Alignment.centerLeft,
                         end: Alignment.centerRight,
                       ),
                       borderRadius: BorderRadius.circular(27),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.accent.withValues(alpha: 0.35),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
+                          color: AppColors.accent.withValues(alpha: 0.40),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
                         ),
                       ],
                     ),
-                    child: const Center(
+                    child: Center(
                       child: Text('Verify Completion',
                         style: TextStyle(
                           fontSize: 16, fontWeight: FontWeight.w700,
-                          color: Colors.white, letterSpacing: 0.2,
+                          color: AppColors.bg, letterSpacing: 0.3,
                         )),
                     ),
                   ),

@@ -75,29 +75,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String get _greeting {
     final h = DateTime.now().hour;
-    if (h < 5)  return 'Night owl 🦉';
-    if (h < 12) return 'Good morning ☀️';
-    if (h < 17) return 'Good afternoon 👋';
-    if (h < 21) return 'Good evening 🌙';
-    return 'Late night 🌟';
+    if (h < 5)  return 'Night owl';
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    if (h < 21) return 'Good evening';
+    return 'Late night';
   }
 
-  // Time-of-day adaptive gradient — like the meditation app reference
-  List<Color> get _headerGradient {
-    final h = DateTime.now().hour;
-    if (h >= 5  && h < 9)  return const [Color(0xFFFF8C42), Color(0xFFFF5C7B)]; // sunrise
-    if (h >= 9  && h < 12) return const [Color(0xFFFFAB40), Color(0xFFFF6D3B)]; // morning
-    if (h >= 12 && h < 15) return const [Color(0xFF4FACFE), Color(0xFF00C6FF)]; // midday
-    if (h >= 15 && h < 17) return const [Color(0xFF43CBFF), Color(0xFF9708CC)]; // afternoon
-    if (h >= 17 && h < 20) return const [Color(0xFF7C5CFC), Color(0xFF5B3FD9)]; // evening (violet)
-    if (h >= 20 && h < 22) return const [Color(0xFF4A1C96), Color(0xFF1A0533)]; // dusk
-    return const [Color(0xFF0F0C29), Color(0xFF302B63)];                         // night
+  String get _dateLabel {
+    final now = DateTime.now();
+    const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    const months = ['January','February','March','April','May','June',
+        'July','August','September','October','November','December'];
+    return '${days[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
   }
 
   @override
   Widget build(BuildContext context) {
     final isAdmin = _tier == AppConstants.tierAdmin;
     final done    = _tasks.where((t) => t['status'] == 'verified').length;
+    final failed  = _tasks.where((t) => t['status'] == 'failed').length;
+    final pending = _tasks.where((t) => t['status'] == 'pending').length;
     final total   = _tasks.length;
     final progress = total == 0 ? 0.0 : done / total;
 
@@ -105,63 +103,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
       backgroundColor: AppColors.bg,
       body: RefreshIndicator(
         color: AppColors.accent,
+        backgroundColor: AppColors.card,
         onRefresh: _load,
         child: _loading
             ? const Center(child: CircularProgressIndicator(color: AppColors.accent, strokeWidth: 2))
             : CustomScrollView(
                 slivers: [
-                  // ── Header ──────────────────────────────────────
+                  // ── Editorial header ─────────────────────────────
                   SliverToBoxAdapter(child: _buildHeader(isAdmin, done, total, progress)),
 
-                  // ── Quick-stat chips (ref image 1 style) ────────
+                  // ── Stat chips ───────────────────────────────────
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(children: [
-                          _StatChip(
-                            label: 'Today',
-                            count: total,
-                            color: AppColors.accent,
-                            bg: AppColors.accentLight,
-                            selected: true,
-                          ),
+                          _StatChip(label: 'TODAY', count: total,
+                              color: AppColors.accent, bg: AppColors.accentLight, selected: true),
                           const SizedBox(width: 8),
-                          _StatChip(
-                            label: 'Done',
-                            count: done,
-                            color: AppColors.success,
-                            bg: AppColors.successBg,
-                          ),
+                          _StatChip(label: 'DONE', count: done,
+                              color: AppColors.success, bg: AppColors.successBg),
                           const SizedBox(width: 8),
-                          _StatChip(
-                            label: 'Pending',
-                            count: _tasks.where((t) => t['status'] == 'pending').length,
-                            color: AppColors.warning,
-                            bg: AppColors.warningBg,
-                          ),
+                          _StatChip(label: 'PENDING', count: pending,
+                              color: AppColors.warning, bg: AppColors.warningBg),
                           const SizedBox(width: 8),
-                          _StatChip(
-                            label: 'Failed',
-                            count: _tasks.where((t) => t['status'] == 'failed').length,
-                            color: AppColors.destructive,
-                            bg: AppColors.destructiveBg,
-                          ),
+                          _StatChip(label: 'FAILED', count: failed,
+                              color: AppColors.destructive, bg: AppColors.destructiveBg),
                         ]),
                       ),
                     ),
                   ),
 
-                  // ── Section label ───────────────────────────────
+                  // ── Section label ────────────────────────────────
                   if (_tasks.isNotEmpty)
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+                        padding: const EdgeInsets.fromLTRB(20, 24, 20, 10),
                         child: Row(children: [
                           const Text("TODAY'S TASKS",
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
-                                  color: AppColors.label3, letterSpacing: 0.8)),
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                                  color: AppColors.label3, letterSpacing: 1.5)),
                           const Spacer(),
                           Text('$done / $total done',
                               style: const TextStyle(fontSize: 11, color: AppColors.label3,
@@ -193,70 +175,81 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
       ),
-      floatingActionButton: _GradientFAB(onTap: _openAddTask),
+      floatingActionButton: _GoldFAB(onTap: _openAddTask),
     );
   }
 
   Widget _buildHeader(bool isAdmin, int done, int total, double progress) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: _headerGradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
+      color: AppColors.bg,
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // Top bar: brand label + admin badge
             Row(children: [
+              const Text('SC',
+                style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w900,
+                  color: AppColors.accent, letterSpacing: 2,
+                )),
+              const SizedBox(width: 8),
+              Container(width: 1, height: 12, color: AppColors.separator),
+              const SizedBox(width: 8),
+              Text(_dateLabel,
+                style: const TextStyle(
+                  fontSize: 11, color: AppColors.label3,
+                  fontWeight: FontWeight.w500, letterSpacing: 0.3,
+                )),
               const Spacer(),
               if (isAdmin)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
+                    color: AppColors.accentLight,
                     borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
                   ),
-                  child: const Text('👑 CEO',
-                      style: TextStyle(fontSize: 12, color: Colors.white,
-                          fontWeight: FontWeight.w700)),
+                  child: const Text('CEO',
+                      style: TextStyle(fontSize: 10, color: AppColors.accent,
+                          fontWeight: FontWeight.w800, letterSpacing: 1.5)),
                 ),
             ]),
-            const SizedBox(height: 4),
-            Text(_greeting,
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800,
-                    color: Colors.white, letterSpacing: -0.8)),
-            const SizedBox(height: 4),
-            Text(
-              total == 0 ? 'No tasks today — enjoy the day!' : '$done of $total tasks done',
-              style: TextStyle(fontSize: 15, color: Colors.white.withValues(alpha: 0.8)),
-            ),
+            const SizedBox(height: 28),
+
+            // Greeting + ring side by side
+            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(_greeting,
+                  style: const TextStyle(
+                    fontSize: 36, fontWeight: FontWeight.w900,
+                    color: AppColors.label, height: 1.0,
+                    letterSpacing: -1.5,
+                  )),
+                const SizedBox(height: 6),
+                Text(
+                  total == 0 ? 'Nothing due — enjoy the day.' : '$done of $total tasks complete',
+                  style: const TextStyle(fontSize: 14, color: AppColors.label3, height: 1.4),
+                ),
+              ])),
+              const SizedBox(width: 20),
+              if (total > 0)
+                _GoldRing(progress: progress, done: done, total: total),
+            ]),
+
             if (total > 0) ...[
               const SizedBox(height: 20),
-              Row(children: [
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 6,
-                        backgroundColor: Colors.white.withValues(alpha: 0.2),
-                        valueColor: const AlwaysStoppedAnimation(Colors.white),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text('${(progress * 100).round()}% complete',
-                        style: TextStyle(fontSize: 12,
-                            color: Colors.white.withValues(alpha: 0.7))),
-                  ]),
+              // Progress bar — gold on dark
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 3,
+                  backgroundColor: AppColors.separator,
+                  valueColor: const AlwaysStoppedAnimation(AppColors.accent),
                 ),
-                const SizedBox(width: 20),
-                _RingProgress(progress: progress),
-              ]),
+              ),
             ],
           ]),
         ),
@@ -267,36 +260,105 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildEmpty() => Center(
     child: Column(mainAxisSize: MainAxisSize.min, children: [
       Container(
-        width: 80, height: 80,
+        width: 72, height: 72,
         decoration: BoxDecoration(
           color: AppColors.accentLight,
           shape: BoxShape.circle,
+          border: Border.all(color: AppColors.accent.withValues(alpha: 0.2), width: 1),
         ),
-        child: const Icon(Icons.check_circle_outline, size: 40, color: AppColors.accent),
+        child: const Icon(Icons.check_rounded, size: 36, color: AppColors.accent),
       ),
-      const SizedBox(height: 16),
-      const Text('Nothing due today', style: TextStyle(fontSize: 18,
-          fontWeight: FontWeight.w700, color: AppColors.label)),
+      const SizedBox(height: 20),
+      const Text('Clear schedule', style: TextStyle(fontSize: 20,
+          fontWeight: FontWeight.w800, color: AppColors.label, letterSpacing: -0.5)),
       const SizedBox(height: 6),
       const Text('Add a task to get started',
           style: TextStyle(fontSize: 14, color: AppColors.label3)),
-      const SizedBox(height: 24),
-      SizedBox(
-        width: 160,
-        child: FilledButton(
-          onPressed: _openAddTask,
-          style: FilledButton.styleFrom(
-            minimumSize: const Size(0, 46),
-            backgroundColor: AppColors.accent,
+      const SizedBox(height: 28),
+      GestureDetector(
+        onTap: _openAddTask,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFE8C890), Color(0xFFB08040)],
+            ),
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.accent.withValues(alpha: 0.35),
+                blurRadius: 16, offset: const Offset(0, 6),
+              ),
+            ],
           ),
-          child: const Text('Add task'),
+          child: const Text('+ Add task',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
+                color: AppColors.bg, letterSpacing: 0.3)),
         ),
       ),
     ]),
   );
 }
 
-// ── Stat chip (ref-1 style filter pill) ───────────────────────────────────
+// ── Gold ring progress ────────────────────────────────────────────────────────
+
+class _GoldRing extends StatelessWidget {
+  final double progress;
+  final int done, total;
+  const _GoldRing({required this.progress, required this.done, required this.total});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 64, height: 64,
+    child: CustomPaint(
+      painter: _GoldRingPainter(progress),
+      child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('${(progress * 100).round()}',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900,
+              color: AppColors.label, height: 1, letterSpacing: -0.5)),
+        const Text('%', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600,
+            color: AppColors.accent, letterSpacing: 0.5)),
+      ])),
+    ),
+  );
+}
+
+class _GoldRingPainter extends CustomPainter {
+  final double progress;
+  _GoldRingPainter(this.progress);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r  = (size.width - 8) / 2;
+    final rect = Rect.fromCircle(center: Offset(cx, cy), radius: r);
+
+    // Track
+    canvas.drawArc(rect, 0, 2 * math.pi, false,
+        Paint()..color = AppColors.separator
+               ..style = PaintingStyle.stroke
+               ..strokeWidth = 5
+               ..strokeCap = StrokeCap.round);
+
+    // Fill — gold
+    if (progress > 0) {
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..strokeCap = StrokeCap.round
+        ..shader = const LinearGradient(
+          colors: [Color(0xFFE8C890), Color(0xFFB08040)],
+        ).createShader(rect);
+      canvas.drawArc(rect, -math.pi / 2, 2 * math.pi * progress, false, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GoldRingPainter old) => old.progress != progress;
+}
+
+// ── Stat chip ────────────────────────────────────────────────────────────────
 
 class _StatChip extends StatelessWidget {
   final String label;
@@ -307,39 +369,35 @@ class _StatChip extends StatelessWidget {
       required this.color, required this.bg, this.selected = false});
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+  Widget build(BuildContext context) => AnimatedContainer(
+    duration: const Duration(milliseconds: 200),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
     decoration: BoxDecoration(
-      color: selected ? color : bg,
+      color: selected ? color.withValues(alpha: 0.15) : bg,
       borderRadius: BorderRadius.circular(24),
-      boxShadow: selected ? [
-        BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4)),
-      ] : null,
+      border: Border.all(
+        color: selected ? color.withValues(alpha: 0.6) : Colors.transparent,
+        width: 1,
+      ),
     ),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
-      if (selected) Container(
-        width: 6, height: 6,
-        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-      ),
-      if (selected) const SizedBox(width: 6),
       Text('$count',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800,
-              color: selected ? Colors.white : color)),
-      const SizedBox(width: 4),
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900,
+              color: color, letterSpacing: -0.5)),
+      const SizedBox(width: 5),
       Text(label,
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-              color: selected ? Colors.white.withValues(alpha: 0.9) : color)),
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+              color: color.withValues(alpha: 0.7), letterSpacing: 0.8)),
     ]),
   );
 }
 
-// ── Task card ────────────────────────────────────────────────────────────────
+// ── Task card ─────────────────────────────────────────────────────────────────
 
 class _TaskCard extends StatelessWidget {
   final Map<String, dynamic> task;
   final VoidCallback onTap;
   final VoidCallback onCheck;
-
   const _TaskCard({required this.task, required this.onTap, required this.onCheck});
 
   @override
@@ -352,23 +410,24 @@ class _TaskCard extends StatelessWidget {
         ? _fmtTime(DateTime.parse(task['scheduled_time']))
         : null;
 
+    final priColor = AppColors.priorityColor(priority);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
           color: AppColors.card,
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.separator, width: 0.5),
           boxShadow: cardShadow,
         ),
         child: Row(children: [
-          // Priority bar
+          // Priority accent bar
           Container(
-            width: 4,
+            width: 3,
             height: 64,
             decoration: BoxDecoration(
-              color: isDone || isFailed
-                  ? AppColors.separator
-                  : AppColors.priorityColor(priority),
+              color: isDone || isFailed ? AppColors.separator : priColor,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(16),
                 bottomLeft: Radius.circular(16),
@@ -387,16 +446,16 @@ class _TaskCard extends StatelessWidget {
                 duration: const Duration(milliseconds: 200),
                 child: Icon(
                   key: ValueKey(isDone),
-                  isDone ? Icons.check_circle_rounded : Icons.circle_outlined,
-                  color: isDone ? AppColors.success : AppColors.separator,
-                  size: 24,
+                  isDone ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                  color: isDone ? AppColors.success : AppColors.label3,
+                  size: 22,
                 ),
               ),
             ),
           ),
           const SizedBox(width: 10),
 
-          // Text
+          // Text content
           Expanded(child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
@@ -407,53 +466,41 @@ class _TaskCard extends StatelessWidget {
                     color: isDone || isFailed ? AppColors.label3 : AppColors.label,
                     decoration: isDone ? TextDecoration.lineThrough : null,
                     decorationColor: AppColors.label3,
+                    letterSpacing: -0.2,
                   ),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
               if (time != null) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Row(children: [
-                  Icon(Icons.access_time, size: 12, color: AppColors.label3),
+                  const Icon(Icons.access_time_rounded, size: 11, color: AppColors.label3),
                   const SizedBox(width: 3),
-                  Text(time, style: const TextStyle(fontSize: 12, color: AppColors.label3)),
+                  Text(time, style: const TextStyle(fontSize: 11, color: AppColors.label3)),
                 ]),
               ],
             ],
           )),
 
-          // Status chip
-          if (isFailed || isDone) ...[
-            Container(
-              margin: const EdgeInsets.only(right: 14),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: isDone ? AppColors.successBg : AppColors.destructiveBg,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                isDone ? 'Done' : 'Failed',
-                style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w700,
-                  color: isDone ? AppColors.success : AppColors.destructive,
-                ),
+          // Status / priority chip
+          Container(
+            margin: const EdgeInsets.only(right: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              color: isDone ? AppColors.successBg
+                  : isFailed ? AppColors.destructiveBg
+                  : AppColors.priorityBg(priority),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              isDone ? 'Done' : isFailed ? 'Failed'
+                  : priority[0].toUpperCase() + priority.substring(1),
+              style: TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w700,
+                color: isDone ? AppColors.success
+                    : isFailed ? AppColors.destructive
+                    : AppColors.priorityColor(priority),
               ),
             ),
-          ] else ...[
-            Container(
-              margin: const EdgeInsets.only(right: 14),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: AppColors.priorityBg(priority),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                priority[0].toUpperCase() + priority.substring(1),
-                style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w700,
-                  color: AppColors.priorityColor(priority),
-                ),
-              ),
-            ),
-          ],
+          ),
         ]),
       ),
     );
@@ -465,89 +512,33 @@ class _TaskCard extends StatelessWidget {
   }
 }
 
-// ── Ring progress ─────────────────────────────────────────────────────────────
+// ── Gold FAB ──────────────────────────────────────────────────────────────────
 
-class _RingProgress extends StatelessWidget {
-  final double progress;
-  const _RingProgress({required this.progress});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 52, height: 52,
-      child: CustomPaint(
-        painter: _RingPainter(progress),
-        child: Center(
-          child: Text('${(progress * 100).round()}',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800,
-                  color: Colors.white)),
-        ),
-      ),
-    );
-  }
-}
-
-class _RingPainter extends CustomPainter {
-  final double progress;
-  _RingPainter(this.progress);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final r  = (size.width - 6) / 2;
-    final rect = Rect.fromCircle(center: Offset(cx, cy), radius: r);
-
-    // Track
-    canvas.drawArc(rect, 0, 2 * math.pi, false,
-        Paint()..color = Colors.white.withValues(alpha: 0.2)
-               ..style = PaintingStyle.stroke
-               ..strokeWidth = 5
-               ..strokeCap = StrokeCap.round);
-
-    // Fill
-    if (progress > 0) {
-      canvas.drawArc(rect, -math.pi / 2, 2 * math.pi * progress, false,
-          Paint()..color = Colors.white
-                 ..style = PaintingStyle.stroke
-                 ..strokeWidth = 5
-                 ..strokeCap = StrokeCap.round);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter old) => old.progress != progress;
-}
-
-// ── Gradient FAB ─────────────────────────────────────────────────────────────
-
-class _GradientFAB extends StatelessWidget {
+class _GoldFAB extends StatelessWidget {
   final VoidCallback onTap;
-  const _GradientFAB({required this.onTap});
+  const _GoldFAB({required this.onTap});
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 58, height: 58,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF9B7AFF), Color(0xFF5B3FD9)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.accent.withValues(alpha: 0.4),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: 58, height: 58,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFE8C890), Color(0xFFB08040)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: const Icon(Icons.add, color: Colors.white, size: 28),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFD4AF7A).withValues(alpha: 0.45),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-    );
-  }
+      child: const Icon(Icons.add, color: AppColors.bg, size: 28),
+    ),
+  );
 }

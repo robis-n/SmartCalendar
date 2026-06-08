@@ -152,56 +152,39 @@ class _FriendsScreenState extends State<FriendsScreen> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Column(children: [
-        // ── Gradient Header ───────────────────────────────
-        Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF7C5CFC), Color(0xFF5B3FD9)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.only(
-              bottomLeft: Radius.circular(24),
-              bottomRight: Radius.circular(24),
-            ),
-          ),
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-              child: Row(children: [
-                const Text('Friends',
-                  style: TextStyle(
-                    fontSize: 28, fontWeight: FontWeight.w700,
-                    color: Colors.white, letterSpacing: -0.5,
+        // ── Editorial Header ──────────────────────────────
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('FRIENDS',
+                style: TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.w700,
+                  color: AppColors.accent, letterSpacing: 2.0,
+                )),
+              const SizedBox(height: 12),
+              Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                Text(totalFriends == 0 ? 'No friends yet' : '$totalFriends friend${totalFriends == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                    fontSize: 28, fontWeight: FontWeight.w900,
+                    color: AppColors.label, letterSpacing: -1,
                   )),
-                const SizedBox(width: 10),
-                if (totalFriends > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.25),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text('$totalFriends',
-                      style: const TextStyle(
-                        fontSize: 13, color: Colors.white, fontWeight: FontWeight.w700,
-                      )),
-                  ),
                 const Spacer(),
                 GestureDetector(
                   onTap: _addFriendDialog,
                   child: Container(
-                    width: 38, height: 38,
+                    width: 40, height: 40,
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      shape: BoxShape.circle,
+                      color: AppColors.accentLight,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
                     ),
-                    child: const Icon(Icons.person_add_outlined, color: Colors.white, size: 20),
+                    child: const Icon(Icons.person_add_outlined, color: AppColors.accent, size: 18),
                   ),
                 ),
               ]),
-            ),
+            ]),
           ),
         ),
 

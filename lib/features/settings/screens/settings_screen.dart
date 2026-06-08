@@ -49,73 +49,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final isAdmin = _tier == AppConstants.tierAdmin;
+    final initial = _email.isNotEmpty ? _email[0].toUpperCase() : '?';
 
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.accent, strokeWidth: 2))
           : CustomScrollView(slivers: [
-              // Header
+              // ── Editorial header ────────────────────────────────
               SliverToBoxAdapter(
-                child: Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF7C5CFC), Color(0xFF5B3FD9)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  child: SafeArea(
-                    bottom: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
-                      child: Row(children: [
-                        // Avatar
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('PROFILE',
+                        style: TextStyle(
+                          fontSize: 10, fontWeight: FontWeight.w700,
+                          color: AppColors.accent, letterSpacing: 2.0,
+                        )),
+                      const SizedBox(height: 20),
+                      Row(children: [
+                        // Avatar with gold ring
                         Container(
                           width: 56, height: 56,
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
+                            color: AppColors.accentLight,
                             shape: BoxShape.circle,
+                            border: Border.all(color: AppColors.accent.withValues(alpha: 0.4), width: 1.5),
                           ),
-                          child: Center(
-                            child: Text(
-                              _email.isNotEmpty ? _email[0].toUpperCase() : '?',
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800,
-                                  color: Colors.white),
-                            ),
-                          ),
+                          child: Center(child: Text(initial,
+                            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800,
+                                color: AppColors.accent))),
                         ),
-                        const SizedBox(width: 14),
+                        const SizedBox(width: 16),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(_email, style: const TextStyle(fontSize: 15,
-                              fontWeight: FontWeight.w600, color: Colors.white),
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                          const SizedBox(height: 2),
+                          Text(_email,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
+                                color: AppColors.label),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 4),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: isAdmin ? 0.25 : 0.15),
+                              color: isAdmin ? AppColors.accentLight : AppColors.bg2,
                               borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: isAdmin
+                                    ? AppColors.accent.withValues(alpha: 0.4)
+                                    : AppColors.separator,
+                                width: 1,
+                              ),
                             ),
                             child: Text(
-                              isAdmin ? '👑 CEO Admin' : _tier.toUpperCase(),
-                              style: const TextStyle(fontSize: 11, color: Colors.white,
-                                  fontWeight: FontWeight.w700),
+                              isAdmin ? 'CEO ADMIN' : _tier.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: isAdmin ? AppColors.accent : AppColors.label3,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.5,
+                              ),
                             ),
                           ),
                         ])),
                       ]),
-                    ),
+                    ]),
                   ),
                 ),
               ),
 
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
                 sliver: SliverList(delegate: SliverChildListDelegate([
 
-                  // ── Account ───────────────────────────────────
-                  _section('Account', [
+                  // ── Account ───────────────────────────────────────
+                  _sectionLabel('ACCOUNT'),
+                  _section([
                     _row(
                       icon: Icons.workspace_premium_rounded,
                       iconBg: AppColors.warningBg, iconColor: AppColors.warning,
@@ -126,8 +135,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ]),
                   const SizedBox(height: 20),
 
-                  // ── Notifications ─────────────────────────────
-                  _section('Notifications', [
+                  // ── Notifications ─────────────────────────────────
+                  _sectionLabel('NOTIFICATIONS'),
+                  _section([
                     _switchRow(
                       icon: Icons.notifications_rounded,
                       iconBg: AppColors.accentLight, iconColor: AppColors.accent,
@@ -140,7 +150,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       },
                     ),
                     if (_notifs) ...[
-                      const Divider(height: 1, indent: 68),
+                      Container(height: 0.5, color: AppColors.separator,
+                          margin: const EdgeInsets.only(left: 68)),
                       _row(
                         icon: Icons.timer_rounded,
                         iconBg: AppColors.successBg, iconColor: AppColors.success,
@@ -152,16 +163,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ]),
                   const SizedBox(height: 20),
 
-                  // ── Privacy ───────────────────────────────────
-                  _section('Privacy', [
+                  // ── Privacy ───────────────────────────────────────
+                  _sectionLabel('PRIVACY'),
+                  _section([
                     _row(
                       icon: Icons.visibility_rounded,
-                      iconBg: const Color(0xFFE3F2FD), iconColor: const Color(0xFF1976D2),
+                      iconBg: AppColors.bg2, iconColor: AppColors.label2,
                       title: 'Profile visibility',
                       trailing: _visLabel(_visibility),
                       onTap: _pickVisibility,
                     ),
-                    const Divider(height: 1, indent: 68),
+                    Container(height: 0.5, color: AppColors.separator,
+                        margin: const EdgeInsets.only(left: 68)),
                     _switchRow(
                       icon: Icons.bar_chart_rounded,
                       iconBg: AppColors.successBg, iconColor: AppColors.success,
@@ -172,7 +185,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         await SupabaseService.updatePrivacySettings({'share_analytics': v});
                       },
                     ),
-                    const Divider(height: 1, indent: 68),
+                    Container(height: 0.5, color: AppColors.separator,
+                        margin: const EdgeInsets.only(left: 68)),
                     _row(
                       icon: Icons.delete_forever_rounded,
                       iconBg: AppColors.destructiveBg, iconColor: AppColors.destructive,
@@ -183,20 +197,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ]),
                   const SizedBox(height: 20),
 
-                  // ── About ─────────────────────────────────────
-                  _section('About', [
+                  // ── About ─────────────────────────────────────────
+                  _sectionLabel('ABOUT'),
+                  _section([
                     _row(
                       icon: Icons.info_outline_rounded,
                       iconBg: AppColors.bg2, iconColor: AppColors.label3,
                       title: 'Version', trailing: '1.0.0', showChevron: false,
                     ),
-                    const Divider(height: 1, indent: 68),
+                    Container(height: 0.5, color: AppColors.separator,
+                        margin: const EdgeInsets.only(left: 68)),
                     _row(
                       icon: Icons.shield_outlined,
                       iconBg: AppColors.bg2, iconColor: AppColors.label3,
                       title: 'Privacy Policy', onTap: _showPrivacy,
                     ),
-                    const Divider(height: 1, indent: 68),
+                    Container(height: 0.5, color: AppColors.separator,
+                        margin: const EdgeInsets.only(left: 68)),
                     _row(
                       icon: Icons.description_outlined,
                       iconBg: AppColors.bg2, iconColor: AppColors.label3,
@@ -216,15 +233,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       decoration: BoxDecoration(
-                        color: AppColors.card,
+                        color: AppColors.destructiveBg,
                         borderRadius: BorderRadius.circular(16),
-                        boxShadow: cardShadow,
+                        border: Border.all(color: AppColors.destructive.withValues(alpha: 0.3), width: 0.5),
                       ),
                       child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Icon(Icons.logout_rounded, color: AppColors.destructive, size: 18),
+                        Icon(Icons.logout_rounded, color: AppColors.destructive, size: 16),
                         SizedBox(width: 8),
-                        Text('Sign Out', style: TextStyle(fontSize: 15,
-                            fontWeight: FontWeight.w700, color: AppColors.destructive)),
+                        Text('Sign Out',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700,
+                              color: AppColors.destructive, letterSpacing: 0.5)),
                       ]),
                     ),
                   ),
@@ -234,26 +252,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ── Section wrapper ────────────────────────────────────────────────────────
+  // ── Section helpers ────────────────────────────────────────────────────────
 
-  Widget _section(String label, List<Widget> children) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Padding(
-        padding: const EdgeInsets.only(left: 4, bottom: 8),
-        child: Text(label.toUpperCase(),
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
-                color: AppColors.label3, letterSpacing: 0.8)),
-      ),
-      Container(
-        decoration: BoxDecoration(
-          color: AppColors.card,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: cardShadow,
-        ),
-        child: Column(children: children),
-      ),
-    ],
+  Widget _sectionLabel(String label) => Padding(
+    padding: const EdgeInsets.only(left: 4, bottom: 8),
+    child: Text(label,
+      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700,
+          color: AppColors.label3, letterSpacing: 1.5)),
+  );
+
+  Widget _section(List<Widget> children) => Container(
+    margin: const EdgeInsets.only(bottom: 0),
+    decoration: BoxDecoration(
+      color: AppColors.card,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: AppColors.separator, width: 0.5),
+      boxShadow: cardShadow,
+    ),
+    child: Column(children: children),
   );
 
   Widget _row({
@@ -264,31 +280,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Color? titleColor,
     bool showChevron = true,
     VoidCallback? onTap,
-  }) =>
-      InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-          child: Row(children: [
-            Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(10)),
-              child: Icon(icon, color: iconColor, size: 18),
-            ),
-            const SizedBox(width: 14),
-            Expanded(child: Text(title, style: TextStyle(fontSize: 15,
-                fontWeight: FontWeight.w500,
-                color: titleColor ?? AppColors.label))),
-            if (trailing != null)
-              Text(trailing, style: const TextStyle(fontSize: 14, color: AppColors.label3)),
-            if (showChevron && onTap != null) ...[
-              const SizedBox(width: 4),
-              const Icon(Icons.chevron_right, size: 18, color: AppColors.label3),
-            ],
-          ]),
+  }) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(16),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(children: [
+        Container(
+          width: 34, height: 34,
+          decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(9)),
+          child: Icon(icon, color: iconColor, size: 16),
         ),
-      );
+        const SizedBox(width: 14),
+        Expanded(child: Text(title,
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500,
+              color: titleColor ?? AppColors.label))),
+        if (trailing != null)
+          Text(trailing,
+            style: const TextStyle(fontSize: 13, color: AppColors.label3)),
+        if (showChevron && onTap != null) ...[
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right, size: 16, color: AppColors.label3),
+        ],
+      ]),
+    ),
+  );
 
   Widget _switchRow({
     required IconData icon,
@@ -296,117 +312,121 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     required bool value,
     required ValueChanged<bool> onChanged,
-  }) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        child: Row(children: [
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(10)),
-            child: Icon(icon, color: iconColor, size: 18),
-          ),
-          const SizedBox(width: 14),
-          Expanded(child: Text(title, style: const TextStyle(fontSize: 15,
-              fontWeight: FontWeight.w500, color: AppColors.label))),
-          Switch(value: value, onChanged: onChanged),
-        ]),
-      );
+  }) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Row(children: [
+      Container(
+        width: 34, height: 34,
+        decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(9)),
+        child: Icon(icon, color: iconColor, size: 16),
+      ),
+      const SizedBox(width: 14),
+      Expanded(child: Text(title,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: AppColors.label))),
+      Switch.adaptive(value: value, onChanged: onChanged),
+    ]),
+  );
 
   // ── Bottom sheets / dialogs ────────────────────────────────────────────────
 
   String _visLabel(String v) => switch (v) {
-        'everyone' => 'Everyone',
-        'private'  => 'Only me',
-        _          => 'Friends',
-      };
+    'everyone' => 'Everyone',
+    'private'  => 'Only me',
+    _          => 'Friends',
+  };
 
   void _pickLeadTime() => showModalBottomSheet(
-        context: context,
-        backgroundColor: AppColors.card,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const SizedBox(height: 8),
-          Container(width: 36, height: 4,
-              decoration: BoxDecoration(color: AppColors.separator,
-                  borderRadius: BorderRadius.circular(2))),
-          const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20),
-            child: Text('Remind me before deadline',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.label)),
-          ),
-          const SizedBox(height: 8),
-          for (final m in [5, 10, 15, 30])
-            ListTile(
-              title: Text('$m minutes before'),
-              trailing: _leadMins == m
-                  ? const Icon(Icons.check_rounded, color: AppColors.accent) : null,
-              onTap: () async {
-                Navigator.pop(ctx);
-                setState(() => _leadMins = m);
-                NotificationService.leadMinutes = m;
-                await SupabaseService.updatePreferences({'reminder_lead_minutes': m});
-                _snack('Reminders set to $m min before');
-              },
-            ),
-          const SizedBox(height: 8),
-        ])),
-      );
+    context: context,
+    backgroundColor: AppColors.card,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      const SizedBox(height: 12),
+      Container(width: 36, height: 4,
+          decoration: BoxDecoration(color: AppColors.separator,
+              borderRadius: BorderRadius.circular(2))),
+      const SizedBox(height: 20),
+      const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 24),
+        child: Text('Remind me before deadline',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.label)),
+      ),
+      const SizedBox(height: 8),
+      for (final m in [5, 10, 15, 30])
+        ListTile(
+          title: Text('$m minutes before',
+              style: const TextStyle(color: AppColors.label)),
+          trailing: _leadMins == m
+              ? const Icon(Icons.check_rounded, color: AppColors.accent) : null,
+          onTap: () async {
+            Navigator.pop(ctx);
+            setState(() => _leadMins = m);
+            NotificationService.leadMinutes = m;
+            await SupabaseService.updatePreferences({'reminder_lead_minutes': m});
+            _snack('Reminders set to $m min before');
+          },
+        ),
+      const SizedBox(height: 8),
+    ])),
+  );
 
   void _pickVisibility() => showModalBottomSheet(
-        context: context,
-        backgroundColor: AppColors.card,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const SizedBox(height: 8),
-          Container(width: 36, height: 4,
-              decoration: BoxDecoration(color: AppColors.separator,
-                  borderRadius: BorderRadius.circular(2))),
-          const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20),
-            child: Text('Profile visibility',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.label)),
-          ),
-          const SizedBox(height: 8),
-          for (final e in {'everyone': 'Everyone', 'friends': 'Friends only', 'private': 'Only me'}.entries)
-            ListTile(
-              title: Text(e.value),
-              trailing: _visibility == e.key
-                  ? const Icon(Icons.check_rounded, color: AppColors.accent) : null,
-              onTap: () async {
-                Navigator.pop(ctx);
-                setState(() => _visibility = e.key);
-                await SupabaseService.updatePrivacySettings({'profile_visibility': e.key});
-              },
-            ),
-          const SizedBox(height: 8),
-        ])),
-      );
+    context: context,
+    backgroundColor: AppColors.card,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      const SizedBox(height: 12),
+      Container(width: 36, height: 4,
+          decoration: BoxDecoration(color: AppColors.separator,
+              borderRadius: BorderRadius.circular(2))),
+      const SizedBox(height: 20),
+      const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 24),
+        child: Text('Profile visibility',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.label)),
+      ),
+      const SizedBox(height: 8),
+      for (final e in {'everyone': 'Everyone', 'friends': 'Friends only', 'private': 'Only me'}.entries)
+        ListTile(
+          title: Text(e.value, style: const TextStyle(color: AppColors.label)),
+          trailing: _visibility == e.key
+              ? const Icon(Icons.check_rounded, color: AppColors.accent) : null,
+          onTap: () async {
+            Navigator.pop(ctx);
+            setState(() => _visibility = e.key);
+            await SupabaseService.updatePrivacySettings({'profile_visibility': e.key});
+          },
+        ),
+      const SizedBox(height: 8),
+    ])),
+  );
 
   void _deleteDialog() => showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Delete all data?', style: TextStyle(fontWeight: FontWeight.w700)),
-          content: const Text('Deletes all tasks, verifications, friends and challenges. Cannot be undone.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await SupabaseService.deleteAllUserData();
-                await Supabase.instance.client.auth.signOut();
-                if (mounted) context.go('/login');
-              },
-              child: const Text('Delete', style: TextStyle(color: AppColors.destructive,
-                  fontWeight: FontWeight.w700)),
-            ),
-          ],
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: AppColors.card,
+      title: const Text('Delete all data?',
+          style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.label)),
+      content: const Text(
+          'Deletes all tasks, verifications, friends and challenges. Cannot be undone.',
+          style: TextStyle(color: AppColors.label2)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.label3))),
+        TextButton(
+          onPressed: () async {
+            Navigator.pop(ctx);
+            await SupabaseService.deleteAllUserData();
+            await Supabase.instance.client.auth.signOut();
+            if (mounted) context.go('/login');
+          },
+          child: const Text('Delete',
+              style: TextStyle(color: AppColors.destructive, fontWeight: FontWeight.w700)),
         ),
-      );
+      ],
+    ),
+  );
 
   void _showPrivacy() => _sheet('Privacy Policy',
       'SmartCalendar collects the minimum data necessary.\n\n'
@@ -423,19 +443,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'SmartCalendar v1.0 — June 2026');
 
   void _sheet(String title, String body) => showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: AppColors.card,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (ctx) => DraggableScrollableSheet(
-          initialChildSize: 0.55, maxChildSize: 0.9, minChildSize: 0.4, expand: false,
-          builder: (ctx, sc) => ListView(controller: sc, padding: const EdgeInsets.all(24), children: [
-            Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
-                color: AppColors.label)),
-            const SizedBox(height: 16),
-            Text(body, style: const TextStyle(fontSize: 15, height: 1.7, color: AppColors.label2)),
-          ]),
-        ),
-      );
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.card,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (ctx) => DraggableScrollableSheet(
+      initialChildSize: 0.55, maxChildSize: 0.9, minChildSize: 0.4, expand: false,
+      builder: (ctx, sc) => ListView(controller: sc, padding: const EdgeInsets.all(28), children: [
+        Text(title,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.label)),
+        const SizedBox(height: 16),
+        Text(body,
+          style: const TextStyle(fontSize: 15, height: 1.7, color: AppColors.label2)),
+      ]),
+    ),
+  );
 }

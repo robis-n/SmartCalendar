@@ -11,8 +11,9 @@ class AccountabilityApp extends ConsumerWidget {
     final router = ref.watch(appRouterProvider);
     return MaterialApp.router(
       title: 'SmartCalendar',
-      theme: AppTheme.light,
-      themeMode: ThemeMode.light,
+      theme: AppTheme.dark,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.dark,
       routerConfig: router,
       debugShowCheckedModeBanner: false,
     );

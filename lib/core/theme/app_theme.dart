@@ -1,33 +1,33 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  // ── Brand ──────────────────────────────────────────────
-  static const accent      = Color(0xFF7C5CFC); // soft violet — the signature color
-  static const accentLight = Color(0xFFEDE9FF); // violet tint for backgrounds
-  static const accentDark  = Color(0xFF5B3FD9); // deeper violet for gradients
+  // ── Brand accent — warm editorial gold ───────────────
+  static const accent      = Color(0xFFD4AF7A); // warm gold (luxury editorial)
+  static const accentLight = Color(0xFF2A2118); // gold tint bg on dark
+  static const accentDark  = Color(0xFFB08040); // deeper gold
 
-  // ── Semantic ───────────────────────────────────────────
-  static const success     = Color(0xFF00C48C); // emerald green
-  static const successBg   = Color(0xFFE6FBF4);
-  static const warning     = Color(0xFFFF9F43); // warm orange
-  static const warningBg   = Color(0xFFFFF3E0);
-  static const destructive = Color(0xFFFF5C78); // coral red (softer than harsh red)
-  static const destructiveBg = Color(0xFFFFECEF);
+  // ── Semantic ─────────────────────────────────────────
+  static const success      = Color(0xFF34D399); // emerald
+  static const successBg    = Color(0xFF0C2B1E);
+  static const warning      = Color(0xFFFFB347); // warm amber
+  static const warningBg    = Color(0xFF2B1E08);
+  static const destructive  = Color(0xFFFF6B6B); // coral
+  static const destructiveBg = Color(0xFF2B0D0D);
 
-  // ── Surfaces ───────────────────────────────────────────
-  static const bg          = Color(0xFFF7F7FB); // off-white with lavender tint
-  static const card        = Color(0xFFFFFFFF);
-  static const bg2         = Color(0xFFF0EFF8); // slightly more lavender
+  // ── Surfaces (warm dark editorial) ───────────────────
+  static const bg   = Color(0xFF100F1A); // near-black, slight warm purple
+  static const card = Color(0xFF1A1928); // dark card surface
+  static const bg2  = Color(0xFF222135); // elevated card / icon bg
 
-  // ── Text ───────────────────────────────────────────────
-  static const label       = Color(0xFF1A1825); // near-black with purple warmth
-  static const label2      = Color(0xFF4A4760);
-  static const label3      = Color(0xFF9896A8); // cool mid-gray
+  // ── Text ─────────────────────────────────────────────
+  static const label  = Color(0xFFF0EDE8); // warm cream white
+  static const label2 = Color(0xFFB8B3C0); // cool-warm midtone
+  static const label3 = Color(0xFF6A677A); // darker subtext
 
-  // ── Dividers ───────────────────────────────────────────
-  static const separator   = Color(0xFFEAE9F2);
+  // ── Dividers ─────────────────────────────────────────
+  static const separator = Color(0xFF252440);
 
-  // ── Priority ───────────────────────────────────────────
+  // ── Priority ─────────────────────────────────────────
   static Color priorityColor(String? p) => switch (p) {
     'high'   => destructive,
     'medium' => warning,
@@ -40,37 +40,38 @@ class AppColors {
   };
 }
 
-// Shared gradient
+// Gold editorial gradient
 LinearGradient get accentGradient => const LinearGradient(
-  colors: [Color(0xFF7C5CFC), Color(0xFF5B3FD9)],
+  colors: [Color(0xFFE8C890), Color(0xFFB08040)],
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
 );
 
-// Soft card shadow
+// Subtle dark card shadow — warm, not harsh
 List<BoxShadow> get cardShadow => [
   BoxShadow(
-    color: const Color(0xFF7C5CFC).withValues(alpha: 0.06),
-    blurRadius: 16,
-    offset: const Offset(0, 4),
+    color: Colors.black.withValues(alpha: 0.40),
+    blurRadius: 24,
+    offset: const Offset(0, 8),
   ),
   BoxShadow(
-    color: Colors.black.withValues(alpha: 0.04),
-    blurRadius: 6,
-    offset: const Offset(0, 1),
+    color: const Color(0xFFD4AF7A).withValues(alpha: 0.03),
+    blurRadius: 8,
+    offset: const Offset(0, 2),
   ),
 ];
 
 class AppTheme {
-  static final light = ThemeData(
+  static final dark = ThemeData(
     useMaterial3: true,
-    brightness: Brightness.light,
+    brightness: Brightness.dark,
     scaffoldBackgroundColor: AppColors.bg,
-    colorScheme: const ColorScheme.light(
+    colorScheme: const ColorScheme.dark(
       primary: AppColors.accent,
       surface: AppColors.card,
       onSurface: AppColors.label,
       secondary: AppColors.accentDark,
+      surfaceContainer: AppColors.bg2,
     ),
     appBarTheme: const AppBarTheme(
       backgroundColor: AppColors.bg,
@@ -90,16 +91,10 @@ class AppTheme {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       margin: EdgeInsets.zero,
     ),
-    listTileTheme: const ListTileThemeData(
-      contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-    ),
-    navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: AppColors.card,
-      elevation: 0,
-      indicatorColor: AppColors.accentLight,
-      labelTextStyle: WidgetStateProperty.all(
-        const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.label2),
-      ),
+    listTileTheme: ListTileThemeData(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+      titleTextStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: AppColors.label),
+      subtitleTextStyle: const TextStyle(fontSize: 13, color: AppColors.label3),
     ),
     dividerTheme: const DividerThemeData(
       color: AppColors.separator,
@@ -108,7 +103,7 @@ class AppTheme {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: AppColors.card,
+      fillColor: AppColors.bg2,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: AppColors.separator),
@@ -126,24 +121,27 @@ class AppTheme {
       hintStyle: const TextStyle(color: AppColors.label3),
     ),
     textTheme: const TextTheme(
-      displayLarge:  TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -1.0, color: AppColors.label),
-      displayMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.7, color: AppColors.label),
-      headlineLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: -0.4, color: AppColors.label),
-      headlineMedium:TextStyle(fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: -0.3, color: AppColors.label),
-      titleLarge:    TextStyle(fontSize: 17, fontWeight: FontWeight.w600, letterSpacing: -0.3, color: AppColors.label),
-      titleMedium:   TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: AppColors.label),
-      bodyLarge:     TextStyle(fontSize: 17, fontWeight: FontWeight.w400, color: AppColors.label),
-      bodyMedium:    TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: AppColors.label),
-      bodySmall:     TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: AppColors.label3),
-      labelSmall:    TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.label3, letterSpacing: 0.2),
+      displayLarge:   TextStyle(fontSize: 56, fontWeight: FontWeight.w900, letterSpacing: -2.5, color: AppColors.label, height: 1),
+      displayMedium:  TextStyle(fontSize: 40, fontWeight: FontWeight.w800, letterSpacing: -1.5, color: AppColors.label, height: 1.1),
+      displaySmall:   TextStyle(fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -1.0, color: AppColors.label),
+      headlineLarge:  TextStyle(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.5, color: AppColors.label),
+      headlineMedium: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: -0.3, color: AppColors.label),
+      headlineSmall:  TextStyle(fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: -0.2, color: AppColors.label),
+      titleLarge:     TextStyle(fontSize: 17, fontWeight: FontWeight.w600, letterSpacing: -0.3, color: AppColors.label),
+      titleMedium:    TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: AppColors.label),
+      bodyLarge:      TextStyle(fontSize: 17, fontWeight: FontWeight.w400, color: AppColors.label),
+      bodyMedium:     TextStyle(fontSize: 15, fontWeight: FontWeight.w400, color: AppColors.label),
+      bodySmall:      TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: AppColors.label3),
+      labelLarge:     TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.label2, letterSpacing: 0.3),
+      labelSmall:     TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.label3, letterSpacing: 1.2),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: AppColors.accent,
-        foregroundColor: Colors.white,
+        foregroundColor: AppColors.bg,
         minimumSize: const Size(double.infinity, 52),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3),
         elevation: 0,
       ),
     ),
@@ -159,11 +157,39 @@ class AppTheme {
     ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith((s) =>
-          s.contains(WidgetState.selected) ? AppColors.accent : Colors.white),
+          s.contains(WidgetState.selected) ? AppColors.bg : AppColors.label3),
       trackColor: WidgetStateProperty.resolveWith((s) =>
           s.contains(WidgetState.selected)
-              ? AppColors.accent.withValues(alpha: 0.5)
+              ? AppColors.accent
               : AppColors.separator),
     ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: AppColors.card,
+      surfaceTintColor: Colors.transparent,
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: AppColors.card,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    ),
+    snackBarTheme: const SnackBarThemeData(
+      backgroundColor: AppColors.bg2,
+      contentTextStyle: TextStyle(color: AppColors.label),
+    ),
+    progressIndicatorTheme: const ProgressIndicatorThemeData(
+      color: AppColors.accent,
+    ),
+    datePickerTheme: const DatePickerThemeData(
+      backgroundColor: AppColors.card,
+      headerBackgroundColor: AppColors.bg2,
+      dayForegroundColor: WidgetStatePropertyAll(AppColors.label),
+      todayBorder: BorderSide(color: AppColors.accent),
+    ),
+    timePickerTheme: const TimePickerThemeData(
+      backgroundColor: AppColors.card,
+    ),
   );
+
+  // Keep light as alias so nothing breaks if referenced elsewhere
+  static final light = dark;
 }

@@ -36,97 +36,112 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       backgroundColor: AppColors.bg,
       body: RefreshIndicator(
         color: AppColors.accent,
+        backgroundColor: AppColors.card,
         onRefresh: _load,
         child: CustomScrollView(slivers: [
-          // Gradient header
+          // ── Editorial header — no gradient, just bold type ──
           SliverToBoxAdapter(
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF7C5CFC), Color(0xFF5B3FD9)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-                  child: _loading
-                      ? const SizedBox(height: 100,
-                          child: Center(child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2)))
-                      : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          const Text('Analytics',
-                              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800,
-                                  color: Colors.white, letterSpacing: -0.8)),
-                          const SizedBox(height: 16),
-                          Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                            Text('${(rate * 100).round()}%',
-                                style: const TextStyle(fontSize: 64, fontWeight: FontWeight.w900,
-                                    color: Colors.white, letterSpacing: -3, height: 1)),
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10, left: 10),
-                              child: Text('completion',
-                                  style: TextStyle(fontSize: 15,
-                                      color: Colors.white.withValues(alpha: 0.75))),
-                            ),
-                          ]),
-                          const SizedBox(height: 12),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: rate, minHeight: 6,
-                              backgroundColor: Colors.white.withValues(alpha: 0.2),
-                              valueColor: const AlwaysStoppedAnimation(Colors.white),
-                            ),
-                          ),
-                        ]),
-                ),
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  // Brand label
+                  const Text('ANALYTICS',
+                    style: TextStyle(
+                      fontSize: 10, fontWeight: FontWeight.w700,
+                      color: AppColors.accent, letterSpacing: 2.0,
+                    )),
+                  const SizedBox(height: 24),
+
+                  if (_loading)
+                    const SizedBox(height: 120,
+                        child: Center(child: CircularProgressIndicator(color: AppColors.accent, strokeWidth: 2)))
+                  else ...[
+                    // Giant completion number — editorial hero
+                    Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      Text('${(rate * 100).round()}',
+                        style: const TextStyle(
+                          fontSize: 80, fontWeight: FontWeight.w900,
+                          color: AppColors.label, height: 1,
+                          letterSpacing: -4,
+                        )),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12, left: 4),
+                        child: Text('%',
+                          style: const TextStyle(
+                            fontSize: 32, fontWeight: FontWeight.w900,
+                            color: AppColors.accent, height: 1,
+                          )),
+                      ),
+                    ]),
+                    const SizedBox(height: 4),
+                    const Text('completion rate',
+                      style: TextStyle(
+                        fontSize: 14, color: AppColors.label3,
+                        fontWeight: FontWeight.w400,
+                      )),
+                    const SizedBox(height: 16),
+
+                    // Progress bar — gold
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: rate,
+                        minHeight: 3,
+                        backgroundColor: AppColors.separator,
+                        valueColor: const AlwaysStoppedAnimation(AppColors.accent),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 32),
+
+                  // Divider line — editorial
+                  Container(height: 0.5, color: AppColors.separator),
+                ]),
               ),
             ),
           ),
 
           if (!_loading) ...[
+            // ── 2×2 stat grid ─────────────────────────────────────
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
               sliver: SliverGrid(
                 delegate: SliverChildListDelegate([
-                  _StatCard(label: 'Total',   value: '$total',   icon: Icons.list_rounded,
-                      color: AppColors.accent,      bg: AppColors.accentLight),
-                  _StatCard(label: 'Done',    value: '$done',    icon: Icons.check_circle_rounded,
-                      color: AppColors.success,     bg: AppColors.successBg),
-                  _StatCard(label: 'Failed',  value: '$failed',  icon: Icons.cancel_rounded,
-                      color: AppColors.destructive, bg: AppColors.destructiveBg),
-                  _StatCard(label: 'Pending', value: '$pending', icon: Icons.pending_rounded,
-                      color: AppColors.warning,     bg: AppColors.warningBg),
+                  _StatCard(label: 'TOTAL',   value: '$total',   color: AppColors.accent,      bg: AppColors.accentLight),
+                  _StatCard(label: 'DONE',    value: '$done',    color: AppColors.success,     bg: AppColors.successBg),
+                  _StatCard(label: 'FAILED',  value: '$failed',  color: AppColors.destructive, bg: AppColors.destructiveBg),
+                  _StatCard(label: 'PENDING', value: '$pending', color: AppColors.warning,     bg: AppColors.warningBg),
                 ]),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12,
-                  childAspectRatio: 1.55,
+                  childAspectRatio: 1.6,
                 ),
               ),
             ),
 
+            // ── Info rows ─────────────────────────────────────────
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                 child: Column(children: [
                   _InfoRow(
-                    icon: Icons.calendar_today_rounded,
-                    iconColor: AppColors.accent, iconBg: AppColors.accentLight,
-                    title: '$weekDone of $weekTotal tasks',
-                    subtitle: 'completed this week',
+                    label: 'THIS WEEK',
+                    value: '$weekDone / $weekTotal',
+                    sub: 'tasks completed',
                     trailing: weekTotal > 0
-                        ? '${(weekDone / weekTotal * 100).round()}%' : null,
+                        ? '${(weekDone / weekTotal * 100).round()}%' : '—',
+                    trailColor: AppColors.accent,
                   ),
                   if (highPrio > 0) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     _InfoRow(
-                      icon: Icons.flag_rounded,
-                      iconColor: AppColors.destructive, iconBg: AppColors.destructiveBg,
-                      title: '$highPrio high priority',
-                      subtitle: 'tasks need attention',
+                      label: 'HIGH PRIORITY',
+                      value: '$highPrio',
+                      sub: 'need attention',
+                      trailing: '!',
+                      trailColor: AppColors.destructive,
                     ),
                   ],
                 ]),
@@ -140,8 +155,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   child: Column(children: const [
                     Text('📊', style: TextStyle(fontSize: 48)),
                     SizedBox(height: 12),
-                    Text('No data yet', style: TextStyle(fontSize: 18,
-                        fontWeight: FontWeight.w700, color: AppColors.label3)),
+                    Text('No data yet',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700,
+                            color: AppColors.label3)),
                     SizedBox(height: 4),
                     Text('Complete some tasks to see your stats',
                         style: TextStyle(fontSize: 14, color: AppColors.label3)),
@@ -149,6 +165,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
               ),
           ],
+
           const SliverToBoxAdapter(child: SizedBox(height: 110)),
         ]),
       ),
@@ -158,42 +175,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
 class _StatCard extends StatelessWidget {
   final String label, value;
-  final IconData icon;
   final Color color, bg;
   const _StatCard({required this.label, required this.value,
-      required this.icon, required this.color, required this.bg});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: AppColors.card,
-      borderRadius: BorderRadius.circular(16),
-      boxShadow: cardShadow,
-    ),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Container(
-        width: 36, height: 36,
-        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
-        child: Icon(icon, color: color, size: 18),
-      ),
-      const Spacer(),
-      Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900,
-          color: color, letterSpacing: -0.5, height: 1)),
-      const SizedBox(height: 2),
-      Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-          color: AppColors.label3)),
-    ]),
-  );
-}
-
-class _InfoRow extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor, iconBg;
-  final String title, subtitle;
-  final String? trailing;
-  const _InfoRow({required this.icon, required this.iconColor, required this.iconBg,
-      required this.title, required this.subtitle, this.trailing});
+      required this.color, required this.bg});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -201,25 +185,53 @@ class _InfoRow extends StatelessWidget {
     decoration: BoxDecoration(
       color: AppColors.card,
       borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: AppColors.separator, width: 0.5),
+      boxShadow: cardShadow,
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label,
+        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700,
+            color: color.withValues(alpha: 0.7), letterSpacing: 1.5)),
+      const Spacer(),
+      Text(value,
+        style: TextStyle(
+          fontSize: 36, fontWeight: FontWeight.w900,
+          color: color, letterSpacing: -1.5, height: 1,
+        )),
+    ]),
+  );
+}
+
+class _InfoRow extends StatelessWidget {
+  final String label, value, sub, trailing;
+  final Color trailColor;
+  const _InfoRow({required this.label, required this.value, required this.sub,
+      required this.trailing, required this.trailColor});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: AppColors.card,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: AppColors.separator, width: 0.5),
       boxShadow: cardShadow,
     ),
     child: Row(children: [
-      Container(
-        width: 44, height: 44,
-        decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(12)),
-        child: Icon(icon, color: iconColor, size: 22),
-      ),
-      const SizedBox(width: 14),
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800,
-            color: AppColors.label, letterSpacing: -0.3)),
-        Text(subtitle, style: const TextStyle(fontSize: 13, color: AppColors.label3)),
+        Text(label,
+          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700,
+              color: AppColors.label3, letterSpacing: 1.5)),
+        const SizedBox(height: 6),
+        Text(value,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
+              color: AppColors.label, letterSpacing: -0.5)),
+        Text(sub, style: const TextStyle(fontSize: 12, color: AppColors.label3)),
       ]),
-      if (trailing != null) ...[
-        const Spacer(),
-        Text(trailing!, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
-            color: AppColors.accent)),
-      ],
+      const Spacer(),
+      Text(trailing,
+        style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900,
+            color: trailColor, letterSpacing: -1)),
     ]),
   );
 }

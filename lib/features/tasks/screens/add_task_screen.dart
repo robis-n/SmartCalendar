@@ -28,7 +28,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.light(primary: AppColors.accent),
+          colorScheme: const ColorScheme.dark(primary: AppColors.accent),
         ),
         child: child!,
       ),
@@ -44,7 +44,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       initialTime: TimeOfDay.fromDateTime(_deadline),
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.light(primary: AppColors.accent),
+          colorScheme: const ColorScheme.dark(primary: AppColors.accent),
         ),
         child: child!,
       ),
@@ -118,12 +118,12 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF9B7AFF), Color(0xFF5B3FD9)],
+                          colors: [Color(0xFFE8C890), Color(0xFFB08040)],
                         ),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: const Text('Save',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700,
+                          style: TextStyle(color: AppColors.bg, fontWeight: FontWeight.w700,
                               fontSize: 14)),
                     ),
                   ),
