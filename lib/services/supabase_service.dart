@@ -55,6 +55,18 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(res);
   }
 
+  static Future<Map<String, dynamic>?> getTaskById(String taskId) async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return null;
+    final res = await client
+        .from('tasks')
+        .select()
+        .eq('id', taskId)
+        .eq('user_id', userId)
+        .maybeSingle();
+    return res;
+  }
+
   static Future<Map<String, dynamic>> createTask(Map<String, dynamic> task) async {
     final res = await client.from('tasks').insert(task).select().single();
     return res;

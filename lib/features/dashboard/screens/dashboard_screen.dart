@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../tasks/screens/add_task_screen.dart';
+import '../../tasks/screens/task_detail_screen.dart';
 import '../../verification/screens/verification_screen.dart';
 
-class DashboardScreen extends ConsumerStatefulWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
   @override
-  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+  State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _tasks = [];
   String _tier = AppConstants.tierFree;
   bool _loading = true;
@@ -48,7 +48,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Future<void> _openAddTask() async {
     final result = await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AddTaskScreen()));
-    if (result == true) _load();
+    if (result == true && mounted) _load();
+  }
+
+  Future<void> _openDetail(Map<String, dynamic> task) async {
+    final result = await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => TaskDetailScreen(taskId: task['id']),
+    ));
+    if (result != null && mounted) _load();
   }
 
   Future<void> _openVerification(Map<String, dynamic> task) async {
@@ -160,6 +167,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             color: AppColors.bg,
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              onTap: () => _openDetail(t),
                               leading: GestureDetector(
                                 onTap: isDone ? null : () => _openVerification(t),
                                 child: Icon(
@@ -177,15 +185,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   decoration: isDone ? TextDecoration.lineThrough : null,
                                 ),
                               ),
-                              subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                if (t['scheduled_time'] != null)
-                                  Text(
-                                    DateTime.parse(t['scheduled_time']).toString().substring(11, 16),
-                                    style: const TextStyle(fontSize: 13, color: AppColors.label3),
-                                  ),
-                                if (t['ai_reasoning'] != null && !isDone)
-                                  Text('AI: ${t['ai_reasoning']}', style: const TextStyle(fontSize: 12, color: AppColors.accent)),
-                              ]),
+                              subtitle: t['scheduled_time'] != null
+                                  ? Text(
+                                      DateTime.parse(t['scheduled_time']).toString().substring(11, 16),
+                                      style: const TextStyle(fontSize: 13, color: AppColors.label3),
+                                    )
+                                  : null,
                               trailing: _priorityDot(t['priority']),
                             ),
                           ),

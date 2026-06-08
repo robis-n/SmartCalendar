@@ -162,9 +162,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () async {
               Navigator.pop(ctx);
               await SupabaseService.deleteAllUserData();
-              if (mounted) {
-                _snack('All data deleted.');
-              }
+              await Supabase.instance.client.auth.signOut();
+              if (mounted) context.go('/login');
             },
             child: const Text('Delete Everything', style: TextStyle(color: AppColors.destructive)),
           ),

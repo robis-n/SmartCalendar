@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 
-class AddTaskScreen extends ConsumerStatefulWidget {
+class AddTaskScreen extends StatefulWidget {
   const AddTaskScreen({super.key});
 
   @override
-  ConsumerState<AddTaskScreen> createState() => _AddTaskScreenState();
+  State<AddTaskScreen> createState() => _AddTaskScreenState();
 }
 
-class _AddTaskScreenState extends ConsumerState<AddTaskScreen> {
+class _AddTaskScreenState extends State<AddTaskScreen> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
   int _estimatedMinutes = 30;

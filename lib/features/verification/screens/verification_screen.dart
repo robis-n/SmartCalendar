@@ -45,7 +45,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   Future<void> _verify() async {
     if (_photo == null || _photoBytes == null) return;
     if (_attempts >= maxAttempts) {
-      _markFailed();
+      await _markFailed();
       return;
     }
     setState(() => _loading = true);
@@ -132,6 +132,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
+      onPopInvokedWithResult: (didPop, _) {},
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
@@ -140,7 +141,15 @@ class _VerificationScreenState extends State<VerificationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 16),
+                // Close / cancel button
+                Align(
+                  alignment: Alignment.topRight,
+                  child: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white54),
+                    onPressed: () => Navigator.of(context).pop(null),
+                    tooltip: 'Cancel',
+                  ),
+                ),
                 const Icon(Icons.camera_alt_rounded, size: 48, color: Color(0xFF6C63FF)),
                 const SizedBox(height: 12),
                 const Text('Prove It!', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
