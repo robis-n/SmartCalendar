@@ -15,7 +15,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  List<Map<String, dynamic>> _tasks = [];
+  List<Map<String, dynamic>> _tasks  = [];
+  List<Map<String, dynamic>> _shared = [];
   String _tier    = AppConstants.tierFree;
   bool   _loading = true;
 
@@ -51,6 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final tasks    = await SupabaseService.getTodayTasks();
+    final shared   = await SupabaseService.getSharedTasksForDate(DateTime.now());
     final profile  = await SupabaseService.getUserProfile();
     final upcoming = await SupabaseService.getUpcomingPendingTasks();
 
@@ -66,6 +68,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (mounted) {
       setState(() {
         _tasks   = tasks;
+        _shared  = shared;
         _tier    = profile?['subscription_tier'] ?? AppConstants.tierFree;
         _loading = false;
       });
@@ -185,41 +188,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
 
-                  // ── Task list / empty ───────────────────────────
-                  if (_tasks.isEmpty)
-                    SliverFillRemaining(
+                  // ── Task list / shared / empty ──────────────────
+                  if (_tasks.isEmpty && _shared.isEmpty)
+                    const SliverFillRemaining(
                       hasScrollBody: false,
-                      child: _EmptyState(onAdd: _openAddTask),
+                      child: _EmptyState(),
                     )
                   else ...[
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 28, 24, 4),
-                        child: Row(children: [
-                          Text('TODAY',
-                            style: TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w800,
-                              color: AppColors.label3, letterSpacing: 2,
-                            )),
-                          const SizedBox(width: 12),
-                          Expanded(child: Container(height: 0.5, color: AppColors.separator)),
-                        ]),
-                      ),
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 130),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (ctx, i) => _TaskRow(
-                            task: _tasks[i],
-                            index: i,
-                            onTap:   () => _openDetail(_tasks[i]),
-                            onCheck: () => _openVerification(_tasks[i]),
+                    if (_tasks.isNotEmpty) ...[
+                      SliverToBoxAdapter(child: _sectionRule('TODAY')),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (ctx, i) => _TaskRow(
+                              task: _tasks[i],
+                              index: i,
+                              onTap:   () => _openDetail(_tasks[i]),
+                              onCheck: () => _openVerification(_tasks[i]),
+                            ),
+                            childCount: _tasks.length,
                           ),
-                          childCount: _tasks.length,
                         ),
                       ),
-                    ),
+                    ],
+                    if (_shared.isNotEmpty) ...[
+                      SliverToBoxAdapter(child: _sectionRule('SHARED WITH YOU')),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (ctx, i) => _SharedRow(task: _shared[i]),
+                            childCount: _shared.length,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SliverToBoxAdapter(child: SizedBox(height: 120)),
                   ],
                 ],
               ),
@@ -228,6 +233,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _statDivider() => Container(width: 0.5, height: 54, color: AppColors.separator);
+
+  Widget _sectionRule(String label) => Padding(
+    padding: const EdgeInsets.fromLTRB(24, 28, 24, 4),
+    child: Row(children: [
+      Text(label,
+        style: TextStyle(
+          fontSize: 12, fontWeight: FontWeight.w800,
+          color: AppColors.label3, letterSpacing: 2,
+        )),
+      const SizedBox(width: 12),
+      Expanded(child: Container(height: 0.5, color: AppColors.separator)),
+    ]),
+  );
+}
+
+// ── Shared-with-you row (read-only) ───────────────────────────────────────────
+
+class _SharedRow extends StatelessWidget {
+  final Map<String, dynamic> task;
+  const _SharedRow({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    final by = (task['_shared_by'] as String?) ?? 'a friend';
+    final time = task['scheduled_time'] != null
+        ? _fmt(DateTime.parse(task['scheduled_time']))
+        : 'Anytime';
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Row(children: [
+          Icon(Icons.people_outline_rounded, size: 20, color: AppColors.label3),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(task['title'] ?? '',
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 18, fontWeight: FontWeight.w600,
+                color: AppColors.label, letterSpacing: -0.3,
+              )),
+            const SizedBox(height: 4),
+            Text('from ${by.split('@').first} · $time',
+              style: TextStyle(fontSize: 14, color: AppColors.label3)),
+          ])),
+        ]),
+      ),
+      Container(height: 0.5, color: AppColors.separator),
+    ]);
+  }
+
+  String _fmt(DateTime d) {
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+  }
 }
 
 // ── Big stat number ───────────────────────────────────────────────────────────
@@ -349,8 +408,7 @@ class _TaskRow extends StatelessWidget {
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
-  final VoidCallback onAdd;
-  const _EmptyState({required this.onAdd});
+  const _EmptyState();
 
   @override
   Widget build(BuildContext context) => Center(
@@ -362,15 +420,9 @@ class _EmptyState extends StatelessWidget {
           style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800,
               color: AppColors.label, letterSpacing: -1)),
         const SizedBox(height: 10),
-        Text('A clear schedule.\nAdd something to stay on track.',
+        Text('A clear schedule.\nTap the + below to add something.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 16, color: AppColors.label3, height: 1.5)),
-        const SizedBox(height: 28),
-        FilledButton(
-          onPressed: onAdd,
-          style: FilledButton.styleFrom(minimumSize: const Size(200, 54)),
-          child: const Text('New task'),
-        ),
       ]),
     ),
   );

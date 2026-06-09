@@ -11,19 +11,19 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  int _tabIndex = 0;
-  int _direction = 1;
+  // Last rendered tab — used to derive slide direction deterministically
+  // (computing direction inside onTap races with go_router's async route update).
+  int _prev = 0;
+  int _lastDir = 1;
 
-  // Only three primary destinations. Friends & Stats live inside Profile.
   static const _routes = ['/dashboard', '/calendar', '/settings'];
 
   static const _items = [
-    _NavItem(Icons.house_rounded,           Icons.house_outlined,           'Home'),
-    _NavItem(Icons.calendar_today_rounded,  Icons.calendar_today_outlined,  'Calendar'),
-    _NavItem(Icons.person_rounded,          Icons.person_outline_rounded,   'Profile'),
+    _NavItem(Icons.house_rounded,          Icons.house_outlined,          'Home'),
+    _NavItem(Icons.calendar_today_rounded, Icons.calendar_today_outlined, 'Calendar'),
+    _NavItem(Icons.person_rounded,         Icons.person_outline_rounded,  'Profile'),
   ];
 
-  // Map any path (incl. profile sub-pages) to one of the three tabs.
   int _indexFor(String path) {
     if (path.startsWith('/calendar')) return 1;
     if (path.startsWith('/settings') ||
@@ -35,12 +35,8 @@ class _MainShellState extends State<MainShell> {
     return 0;
   }
 
-  void _onTab(BuildContext context, int i) {
-    if (i == _tabIndex) return;
-    setState(() {
-      _direction = i > _tabIndex ? 1 : -1;
-      _tabIndex = i;
-    });
+  void _onTab(BuildContext context, int i, int current) {
+    if (i == current) return;
     context.go(_routes[i]);
   }
 
@@ -49,9 +45,14 @@ class _MainShellState extends State<MainShell> {
     final path       = GoRouterState.of(context).uri.path;
     final routeIndex = _indexFor(path);
 
-    if (routeIndex != _tabIndex) {
+    // Direction: moving to a higher index slides content from the right (+1),
+    // lower index slides from the left (-1). Going LEFT (e.g. Calendar→Home)
+    // therefore enters from the left = a left→right sweep.
+    final dir = routeIndex > _prev ? 1 : (routeIndex < _prev ? -1 : _lastDir);
+    _lastDir = dir;
+    if (routeIndex != _prev) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _tabIndex = routeIndex);
+        if (mounted) _prev = routeIndex;
       });
     }
 
@@ -59,14 +60,12 @@ class _MainShellState extends State<MainShell> {
       extendBody: true,
       backgroundColor: AppColors.bg,
       body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
+        duration: const Duration(milliseconds: 320),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeInCubic,
         transitionBuilder: (child, animation) {
-          // Incoming child carries the *current* routeIndex key; the
-          // outgoing child still carries the previous one.
           final entering = child.key == ValueKey(routeIndex);
-          final dx = entering ? _direction * 0.10 : -_direction * 0.10;
+          final dx = entering ? dir * 0.10 : -dir * 0.10;
           return FadeTransition(
             opacity: animation,
             child: SlideTransition(
@@ -81,15 +80,14 @@ class _MainShellState extends State<MainShell> {
         child: KeyedSubtree(key: ValueKey(routeIndex), child: widget.child),
       ),
 
-      // ── Floating glass pill nav ─────────────────────────────────────────
       bottomNavigationBar: Padding(
-        padding: const EdgeInsets.fromLTRB(48, 0, 48, 26),
+        padding: const EdgeInsets.fromLTRB(40, 0, 40, 26),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(36),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
             child: Container(
-              height: 66,
+              height: 68,
               decoration: BoxDecoration(
                 color: AppColors.glass,
                 borderRadius: BorderRadius.circular(36),
@@ -102,45 +100,66 @@ class _MainShellState extends State<MainShell> {
                   ),
                 ],
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(_items.length, (i) {
-                  final item     = _items[i];
-                  final selected = routeIndex == i;
-                  return GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => _onTab(context, i),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 260),
-                      curve: Curves.easeOutCubic,
-                      padding: selected
-                          ? const EdgeInsets.symmetric(horizontal: 18, vertical: 11)
-                          : const EdgeInsets.all(11),
-                      decoration: BoxDecoration(
-                        color: selected ? AppColors.label : Colors.transparent,
-                        borderRadius: BorderRadius.circular(26),
-                      ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(
-                          selected ? item.activeIcon : item.icon,
-                          color: selected ? AppColors.bg : AppColors.label3,
-                          size: 23,
+              child: LayoutBuilder(builder: (ctx, c) {
+                final slot = c.maxWidth / _items.length;
+                return Stack(children: [
+                  // ── Sliding ink bubble ──────────────────────────
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 340),
+                    curve: Curves.easeOutCubic,
+                    left: routeIndex * slot,
+                    top: 0, bottom: 0, width: slot,
+                    child: Center(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.label,
+                          borderRadius: BorderRadius.circular(24),
                         ),
-                        if (selected) ...[
-                          const SizedBox(width: 8),
-                          Text(item.label,
-                              style: TextStyle(
-                                color: AppColors.bg,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.2,
-                              )),
-                        ],
-                      ]),
+                      ),
                     ),
-                  );
-                }),
-              ),
+                  ),
+                  // ── Tab buttons ─────────────────────────────────
+                  Row(
+                    children: List.generate(_items.length, (i) {
+                      final item     = _items[i];
+                      final selected = routeIndex == i;
+                      return Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _onTab(context, i, routeIndex),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                selected ? item.activeIcon : item.icon,
+                                color: selected ? AppColors.bg : AppColors.label3,
+                                size: 23,
+                              ),
+                              AnimatedSize(
+                                duration: const Duration(milliseconds: 280),
+                                curve: Curves.easeOutCubic,
+                                child: selected
+                                    ? Padding(
+                                        padding: const EdgeInsets.only(left: 8),
+                                        child: Text(item.label,
+                                            style: TextStyle(
+                                              color: AppColors.bg,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: -0.2,
+                                            )),
+                                      )
+                                    : const SizedBox.shrink(),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ]);
+              }),
             ),
           ),
         ),

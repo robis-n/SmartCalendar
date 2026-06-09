@@ -269,4 +269,75 @@ class SupabaseService {
   static Future<void> abandonChallenge(String challengeId) async {
     await client.from('challenges').update({'status': 'abandoned'}).eq('id', challengeId);
   }
+
+  // ── Collaboration ──────────────────────────────────────
+
+  /// Accepted friends as [{id, email}] — used by the New Task collaborator picker.
+  static Future<List<Map<String, dynamic>>> getAcceptedFriends() async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return [];
+    final fs = await getFriendships();
+    final out = <Map<String, dynamic>>[];
+    for (final f in fs) {
+      if (f['status'] != 'accepted') continue;
+      final other = (f['requester_id'] == me ? f['addressee'] : f['requester']) as Map?;
+      if (other != null && other['id'] != null) {
+        out.add({'id': other['id'], 'email': other['email'] ?? '?'});
+      }
+    }
+    return out;
+  }
+
+  /// Share an existing task with friends (creates a collaboration row).
+  static Future<void> addCollaborators(String taskId, List<String> invitedIds) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null || invitedIds.isEmpty) return;
+    await client.from('collaborations').insert({
+      'owner_id': me,
+      'task_id': taskId,
+      'invited_user_ids': invitedIds,
+      'status': 'active',
+    });
+  }
+
+  /// Tasks other people have shared with me, scheduled on [date].
+  /// Each row gets a `_shared_by` email for display.
+  static Future<List<Map<String, dynamic>>> getSharedTasksForDate(DateTime date) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return [];
+    final collabs = List<Map<String, dynamic>>.from(
+      await client.from('collaborations')
+          .select('task_id, owner_id')
+          .contains('invited_user_ids', [me]),
+    );
+    if (collabs.isEmpty) return [];
+
+    final ownerOf = {for (final c in collabs) c['task_id']: c['owner_id']};
+    final taskIds = collabs.map((c) => c['task_id']).whereType<String>().toList();
+    if (taskIds.isEmpty) return [];
+
+    final start = DateTime(date.year, date.month, date.day).toIso8601String();
+    final end = DateTime(date.year, date.month, date.day, 23, 59, 59).toIso8601String();
+    final tasks = List<Map<String, dynamic>>.from(
+      await client.from('tasks').select()
+          .inFilter('id', taskIds)
+          .gte('scheduled_time', start)
+          .lte('scheduled_time', end)
+          .order('scheduled_time'),
+    );
+    if (tasks.isEmpty) return [];
+
+    // Resolve owner emails.
+    final ownerIds = ownerOf.values.whereType<String>().toSet().toList();
+    final ownerRows = ownerIds.isEmpty
+        ? <Map<String, dynamic>>[]
+        : List<Map<String, dynamic>>.from(
+            await client.from('users').select('id, email').inFilter('id', ownerIds));
+    final emailOf = {for (final r in ownerRows) r['id']: r['email']};
+
+    for (final t in tasks) {
+      t['_shared_by'] = emailOf[ownerOf[t['id']]] ?? 'a friend';
+    }
+    return tasks;
+  }
 }

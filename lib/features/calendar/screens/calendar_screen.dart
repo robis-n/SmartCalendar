@@ -95,11 +95,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
         ),
 
-        // ── Weekday header (Sun-first, Apple US) ───────────────
+        // ── Weekday header (Monday-first, European) ────────────
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           child: Row(
-            children: const ['S','M','T','W','T','F','S']
+            children: const ['M','T','W','T','F','S','S']
                 .map((d) => Expanded(child: _Weekday(d)))
                 .toList(),
           ),
@@ -210,8 +210,8 @@ class _MonthViewState extends State<_MonthView> {
   }
 
   int get _daysInMonth => DateTime(widget.month.year, widget.month.month + 1, 0).day;
-  // Sunday-first column index for the 1st of the month.
-  int get _leadBlanks => DateTime(widget.month.year, widget.month.month, 1).weekday % 7;
+  // Monday-first column index for the 1st of the month (Mon=0 … Sun=6).
+  int get _leadBlanks => DateTime(widget.month.year, widget.month.month, 1).weekday - 1;
 
   bool _isToday(int d) {
     final n = DateTime.now();

@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
@@ -15,8 +16,11 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   final _title = TextEditingController();
   final _desc  = TextEditingController();
   late DateTime _deadline;
-  String   _priority = 'medium';
-  bool     _saving   = false;
+  String _priority = 'medium';
+  bool   _saving   = false;
+
+  List<Map<String, dynamic>> _friends = [];
+  final Set<String> _collab = {};
 
   @override
   void initState() {
@@ -25,6 +29,12 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     _deadline = d != null
         ? DateTime(d.year, d.month, d.day, 9, 0)
         : DateTime.now().add(const Duration(hours: 1));
+    _loadFriends();
+  }
+
+  Future<void> _loadFriends() async {
+    final f = await SupabaseService.getAcceptedFriends();
+    if (mounted) setState(() => _friends = f);
   }
 
   @override
@@ -42,14 +52,120 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     }
   }
 
+  // Natural wheel time picker (Cupertino) — no clock dial.
   Future<void> _pickTime() async {
-    final t = await showTimePicker(
+    DateTime temp = _deadline;
+    await showModalBottomSheet(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(_deadline),
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 12),
+          Container(width: 40, height: 5,
+              decoration: BoxDecoration(color: AppColors.separator,
+                  borderRadius: BorderRadius.circular(3))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 12, 4),
+            child: Row(children: [
+              Text('Pick a time',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.label)),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Done',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.label)),
+              ),
+            ]),
+          ),
+          SizedBox(
+            height: 216,
+            child: CupertinoTheme(
+              data: CupertinoThemeData(
+                brightness: AppColors.isDark ? Brightness.dark : Brightness.light,
+                textTheme: CupertinoTextThemeData(
+                  dateTimePickerTextStyle: TextStyle(
+                    fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.label),
+                ),
+              ),
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.time,
+                initialDateTime: _deadline,
+                use24hFormat: false,
+                onDateTimeChanged: (dt) => temp = dt,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ]),
+      ),
     );
-    if (t != null && mounted) {
-      setState(() => _deadline = DateTime(_deadline.year, _deadline.month, _deadline.day, t.hour, t.minute));
+    if (mounted) {
+      setState(() => _deadline =
+          DateTime(_deadline.year, _deadline.month, _deadline.day, temp.hour, temp.minute));
     }
+  }
+
+  Future<void> _pickCollaborators() async {
+    if (_friends.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Add friends first (Profile → Friends) to collaborate')));
+      return;
+    }
+    final temp = Set<String>.from(_collab);
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, ss) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 12),
+          Container(width: 40, height: 5,
+              decoration: BoxDecoration(color: AppColors.separator,
+                  borderRadius: BorderRadius.circular(3))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 12, 4),
+            child: Row(children: [
+              Text('Share with friends',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.label)),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Done',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.label)),
+              ),
+            ]),
+          ),
+          ..._friends.map((f) {
+            final id = f['id'] as String;
+            final on = temp.contains(id);
+            return ListTile(
+              onTap: () => ss(() => on ? temp.remove(id) : temp.add(id)),
+              leading: CircleAvatar(
+                radius: 18, backgroundColor: AppColors.bg2,
+                child: Text((f['email'] as String).characters.first.toUpperCase(),
+                    style: TextStyle(color: AppColors.label, fontWeight: FontWeight.w700)),
+              ),
+              title: Text((f['email'] as String).split('@').first,
+                  style: TextStyle(color: AppColors.label, fontWeight: FontWeight.w500)),
+              trailing: Container(
+                width: 26, height: 26,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: on ? AppColors.label : Colors.transparent,
+                  border: on ? null : Border.all(color: AppColors.separator, width: 1.5),
+                ),
+                child: on ? Icon(Icons.check_rounded, size: 16, color: AppColors.bg) : null,
+              ),
+            );
+          }),
+          const SizedBox(height: 12),
+        ]),
+      )),
+    );
+    setState(() { _collab..clear()..addAll(temp); });
   }
 
   Future<void> _save() async {
@@ -70,6 +186,9 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         'ai_generated':   false,
         'priority':       _priority,
       });
+      if (_collab.isNotEmpty) {
+        await SupabaseService.addCollaborators(created['id'], _collab.toList());
+      }
       await NotificationService().scheduleTaskNotifications(
           taskId: created['id'], taskTitle: _title.text.trim(), deadline: _deadline);
       if (mounted) Navigator.of(context).pop(true);
@@ -137,8 +256,10 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
             decoration: BoxDecoration(
               color: AppColors.card,
               borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.separator, width: 1),
               boxShadow: cardShadow,
             ),
+            clipBehavior: Clip.antiAlias,
             child: Column(children: [
               TextField(
                 controller: _title,
@@ -150,12 +271,14 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                   hintText: 'What do you need to do?',
                   hintStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w500,
                       color: AppColors.label3, letterSpacing: -0.4),
+                  filled: false,
                   border: InputBorder.none, enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                   contentPadding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
                 ),
               ),
-              const Divider(height: 1, indent: 18, endIndent: 18),
+              Divider(height: 1, thickness: 0.5, color: AppColors.separator,
+                  indent: 18, endIndent: 18),
               TextField(
                 controller: _desc,
                 textCapitalization: TextCapitalization.sentences,
@@ -164,6 +287,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                 decoration: InputDecoration(
                   hintText: 'Add notes…',
                   hintStyle: TextStyle(color: AppColors.label3, fontSize: 16),
+                  filled: false,
                   border: InputBorder.none, enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                   contentPadding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
@@ -221,6 +345,36 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
               ),
             ],
           ]),
+          const SizedBox(height: 24),
+
+          // Collaborators — quiet, optional
+          _sectionLabel('COLLABORATORS'),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: _pickCollaborators,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              decoration: BoxDecoration(
+                color: AppColors.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.separator, width: 1),
+              ),
+              child: Row(children: [
+                Icon(Icons.group_add_outlined, size: 20, color: AppColors.label2),
+                const SizedBox(width: 12),
+                Expanded(child: Text(
+                  _collab.isEmpty ? 'Share with a friend (optional)'
+                                  : '${_collab.length} ${_collab.length == 1 ? "friend" : "friends"} added',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: _collab.isEmpty ? FontWeight.w400 : FontWeight.w600,
+                    color: _collab.isEmpty ? AppColors.label3 : AppColors.label,
+                  ),
+                )),
+                Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
+              ]),
+            ),
+          ),
         ],
       ),
     );
@@ -238,7 +392,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           decoration: BoxDecoration(
             color: AppColors.card,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.separator),
+            border: Border.all(color: AppColors.separator, width: 1),
             boxShadow: cardShadow,
           ),
           child: Row(children: [

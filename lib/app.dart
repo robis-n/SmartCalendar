@@ -17,6 +17,10 @@ class AccountabilityApp extends ConsumerWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: themeMode,
+      // Flip instantly: the Material lerp would cross-fade over 200ms while our
+      // global ink/paper flag snaps at the midpoint — that mismatch is the
+      // "lag". Zero duration makes brightness + AppColors switch in one frame.
+      themeAnimationDuration: Duration.zero,
       routerConfig: router,
       debugShowCheckedModeBanner: false,
       // The `builder` runs as a descendant of MaterialApp's resolved Theme,

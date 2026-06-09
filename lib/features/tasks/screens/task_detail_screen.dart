@@ -189,7 +189,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     final t        = _task!;
     final status   = t['status'] as String? ?? 'pending';
     final priority = t['priority'] as String? ?? 'medium';
-    final isDone   = status == 'verified' || status == 'failed';
     final sched    = t['scheduled_time'] != null ? DateTime.parse(t['scheduled_time']) : null;
 
     final statusLabel = switch (status) {
@@ -228,15 +227,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         style: TextStyle(fontSize: 13, color: AppColors.label, fontWeight: FontWeight.w600)),
                     ),
                     const Spacer(),
-                    if (!isDone)
-                      GestureDetector(
-                        onTap: _editTitle,
-                        child: Icon(Icons.edit_outlined, size: 20, color: AppColors.label3),
-                      ),
+                    GestureDetector(
+                      onTap: _editTitle,
+                      child: Icon(Icons.edit_outlined, size: 20, color: AppColors.label3),
+                    ),
                   ]),
                   const SizedBox(height: 14),
                   GestureDetector(
-                    onTap: isDone ? null : _editTitle,
+                    onTap: _editTitle,
                     child: Text(t['title'] ?? '',
                       style: TextStyle(
                         fontSize: 26, fontWeight: FontWeight.w700,
@@ -252,12 +250,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 icon: Icons.access_time_rounded,
                 label: 'Scheduled',
                 value: sched != null ? '${_fmtDate(sched)}, ${_fmtTime(sched)}' : 'No date set',
-                onTap: isDone ? null : _reschedule,
+                onTap: _reschedule,
               ),
               const SizedBox(height: 10),
 
               // ── Notes ─────────────────────────────────
-              _notesCard(t, isDone),
+              _notesCard(t),
               const SizedBox(height: 10),
 
               // ── Priority ──────────────────────────────
@@ -273,20 +271,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   const SizedBox(width: 14),
                   Text('Priority', style: TextStyle(fontSize: 16, color: AppColors.label2)),
                   const Spacer(),
-                  if (isDone)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.bg2,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        priority[0].toUpperCase() + priority.substring(1),
-                        style: TextStyle(fontSize: 14, color: AppColors.label, fontWeight: FontWeight.w600),
-                      ),
-                    )
-                  else
-                    Row(mainAxisSize: MainAxisSize.min, children: [
+                  Row(mainAxisSize: MainAxisSize.min, children: [
                       for (final p in ['low', 'medium', 'high']) ...[
                         if (p != 'low') const SizedBox(width: 6),
                         GestureDetector(
@@ -389,10 +374,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     ),
   );
 
-  Widget _notesCard(Map<String, dynamic> t, bool isDone) {
+  Widget _notesCard(Map<String, dynamic> t) {
     final hasNotes = (t['description'] as String?)?.isNotEmpty == true;
     return GestureDetector(
-      onTap: isDone ? null : _editDesc,
+      onTap: _editDesc,
       child: Container(
         decoration: BoxDecoration(
           color: AppColors.card,
@@ -414,7 +399,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               ),
             ),
           ])),
-          if (!isDone) Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
+          Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
         ]),
       ),
     );
