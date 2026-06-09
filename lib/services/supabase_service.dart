@@ -85,7 +85,9 @@ class SupabaseService {
   }
 
   static Future<void> deleteTask(String taskId) async {
+    // Clear dependents first (FK constraints would otherwise block the delete).
     await client.from('task_verifications').delete().eq('task_id', taskId);
+    await client.from('collaborations').delete().eq('task_id', taskId);
     await client.from('tasks').delete().eq('id', taskId);
   }
 
@@ -174,6 +176,7 @@ class SupabaseService {
     if (taskIds.isNotEmpty) {
       await client.from('task_verifications').delete().inFilter('task_id', taskIds);
     }
+    await client.from('collaborations').delete().eq('owner_id', userId);
     await client.from('tasks').delete().eq('user_id', userId);
     await client.from('friendships').delete().or('requester_id.eq.$userId,addressee_id.eq.$userId');
     await client.from('challenges').delete().or('creator_id.eq.$userId,partner_id.eq.$userId');

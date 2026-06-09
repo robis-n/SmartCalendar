@@ -12,7 +12,7 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   // Last rendered tab — used to derive slide direction deterministically
-  // (computing direction inside onTap races with go_router's async route update).
+  // (computing direction inside onTap races with go_router's async update).
   int _prev = 0;
   int _lastDir = 1;
 
@@ -45,9 +45,9 @@ class _MainShellState extends State<MainShell> {
     final path       = GoRouterState.of(context).uri.path;
     final routeIndex = _indexFor(path);
 
-    // Direction: moving to a higher index slides content from the right (+1),
-    // lower index slides from the left (-1). Going LEFT (e.g. Calendar→Home)
-    // therefore enters from the left = a left→right sweep.
+    // +1 = moving to a higher tab → new screen enters from the right.
+    // -1 = moving to a lower tab → new screen enters from the left
+    //      (e.g. Calendar→Home is a left→right sweep).
     final dir = routeIndex > _prev ? 1 : (routeIndex < _prev ? -1 : _lastDir);
     _lastDir = dir;
     if (routeIndex != _prev) {
@@ -59,25 +59,24 @@ class _MainShellState extends State<MainShell> {
     return Scaffold(
       extendBody: true,
       backgroundColor: AppColors.bg,
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 320),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        transitionBuilder: (child, animation) {
-          final entering = child.key == ValueKey(routeIndex);
-          final dx = entering ? dir * 0.10 : -dir * 0.10;
-          return FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(begin: Offset(dx, 0), end: Offset.zero)
-                  .animate(animation),
+      body: ClipRect(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 340),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            final entering = child.key == ValueKey(routeIndex);
+            // Full-width slide — a clear, whole-screen transition.
+            final begin = Offset(entering ? dir.toDouble() : -dir.toDouble(), 0);
+            return SlideTransition(
+              position: Tween<Offset>(begin: begin, end: Offset.zero).animate(animation),
               child: child,
-            ),
-          );
-        },
-        layoutBuilder: (current, previous) =>
-            Stack(fit: StackFit.expand, children: [...previous, ?current]),
-        child: KeyedSubtree(key: ValueKey(routeIndex), child: widget.child),
+            );
+          },
+          layoutBuilder: (current, previous) =>
+              Stack(fit: StackFit.expand, children: [...previous, ?current]),
+          child: KeyedSubtree(key: ValueKey(routeIndex), child: widget.child),
+        ),
       ),
 
       bottomNavigationBar: Padding(
@@ -103,7 +102,7 @@ class _MainShellState extends State<MainShell> {
               child: LayoutBuilder(builder: (ctx, c) {
                 final slot = c.maxWidth / _items.length;
                 return Stack(children: [
-                  // ── Sliding ink bubble ──────────────────────────
+                  // ── Sliding ink bubble (vertically centred) ─────
                   AnimatedPositioned(
                     duration: const Duration(milliseconds: 340),
                     curve: Curves.easeOutCubic,
@@ -111,7 +110,7 @@ class _MainShellState extends State<MainShell> {
                     top: 0, bottom: 0, width: slot,
                     child: Center(
                       child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
                         decoration: BoxDecoration(
                           color: AppColors.label,
                           borderRadius: BorderRadius.circular(24),
@@ -119,44 +118,45 @@ class _MainShellState extends State<MainShell> {
                       ),
                     ),
                   ),
-                  // ── Tab buttons ─────────────────────────────────
-                  Row(
-                    children: List.generate(_items.length, (i) {
-                      final item     = _items[i];
-                      final selected = routeIndex == i;
-                      return Expanded(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => _onTab(context, i, routeIndex),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                selected ? item.activeIcon : item.icon,
-                                color: selected ? AppColors.bg : AppColors.label3,
-                                size: 23,
-                              ),
-                              AnimatedSize(
-                                duration: const Duration(milliseconds: 280),
-                                curve: Curves.easeOutCubic,
-                                child: selected
-                                    ? Padding(
-                                        padding: const EdgeInsets.only(left: 8),
-                                        child: Text(item.label,
-                                            style: TextStyle(
-                                              color: AppColors.bg,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w700,
-                                              letterSpacing: -0.2,
-                                            )),
-                                      )
-                                    : const SizedBox.shrink(),
-                              ),
-                            ],
+                  // ── Tab buttons (fill height, centred content) ──
+                  Positioned.fill(
+                    child: Row(
+                      children: List.generate(_items.length, (i) {
+                        final item     = _items[i];
+                        final selected = routeIndex == i;
+                        return Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => _onTab(context, i, routeIndex),
+                            child: Center(
+                              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                Icon(
+                                  selected ? item.activeIcon : item.icon,
+                                  color: selected ? AppColors.bg : AppColors.label3,
+                                  size: 23,
+                                ),
+                                AnimatedSize(
+                                  duration: const Duration(milliseconds: 280),
+                                  curve: Curves.easeOutCubic,
+                                  child: selected
+                                      ? Padding(
+                                          padding: const EdgeInsets.only(left: 8),
+                                          child: Text(item.label,
+                                              style: TextStyle(
+                                                color: AppColors.bg,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                                letterSpacing: -0.2,
+                                              )),
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
+                              ]),
+                            ),
                           ),
-                        ),
-                      );
-                    }),
+                        );
+                      }),
+                    ),
                   ),
                 ]);
               }),
