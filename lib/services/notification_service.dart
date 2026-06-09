@@ -127,36 +127,41 @@ class NotificationService {
     }
   }
 
+  // ── Notification style ────────────────────────────────────────────────────
+  // Safety: this used to spam — `ongoing: true` made the deadline notification
+  // persistent (impossible to dismiss on Android), `Importance.max` ran the
+  // full alarm channel (continuous vibration, full-screen on some OEMs), and
+  // we never set `onlyAlertOnce` so any re-post (e.g. after reboot) would
+  // re-vibrate. New behavior: a single, dismissable, polite ping.
   NotificationDetails _notifDetails(String taskTitle, {required bool warning}) {
     return NotificationDetails(
       android: AndroidNotificationDetails(
         warning ? 'task_warning' : 'task_deadline',
         warning ? 'Task Warnings' : 'Task Deadlines',
         channelDescription: warning
-            ? '15 minute warnings before task deadlines'
-            : 'Notifications when task deadlines are reached',
-        importance: warning ? Importance.high : Importance.max,
-        priority: Priority.high,
-        ongoing: !warning, // deadline notif is persistent
-        autoCancel: warning,
-        category: warning
-            ? AndroidNotificationCategory.reminder
-            : AndroidNotificationCategory.alarm,
+            ? 'Reminder before a task deadline'
+            : 'When a task deadline is reached',
+        importance: Importance.high,           // not .max → no full-screen / forced alarm
+        priority:   Priority.high,
+        ongoing:    false,                     // ← was true: that's what caused the "spam"
+        autoCancel: true,
+        onlyAlertOnce: true,                   // never re-vibrate if the OS re-posts
+        playSound:  true,
+        enableVibration: true,
+        category: AndroidNotificationCategory.reminder,
         actions: warning
             ? null
             : [
-                const AndroidNotificationAction('verify', 'Verify Now',
+                const AndroidNotificationAction('verify', 'Verify',
                     showsUserInterface: true),
-                const AndroidNotificationAction('snooze', 'Snooze 5min'),
               ],
       ),
-      iOS: DarwinNotificationDetails(
+      iOS: const DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
-        interruptionLevel: warning
-            ? InterruptionLevel.active
-            : InterruptionLevel.timeSensitive,
+        // `active`, not `timeSensitive` / `critical` — those bypass focus modes.
+        interruptionLevel: InterruptionLevel.active,
         categoryIdentifier: 'TASK_DEADLINE',
       ),
     );

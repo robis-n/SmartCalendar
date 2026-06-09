@@ -99,7 +99,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   Future<void> _verify() async {
-    final r = await Navigator.of(context).push(MaterialPageRoute(
+    final r = await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (_) => VerificationScreen(taskId: widget.taskId, taskTitle: _task?['title'] ?? ''),
     ));
     if (r != null && mounted) _load();
@@ -313,30 +313,32 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               ],
 
               // ── Actions ───────────────────────────────
+              const SizedBox(height: 28),
               if (status == 'pending') ...[
-                const SizedBox(height: 28),
                 FilledButton(
                   onPressed: _saving ? null : _verify,
                   child: const Text('Verify completion'),
                 ),
                 const SizedBox(height: 12),
-                GestureDetector(
-                  onTap: _saving ? null : _fail,
-                  child: Container(
-                    height: 52,
-                    decoration: BoxDecoration(
-                      color: AppColors.bg2,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.separator, width: 0.8),
-                    ),
-                    child: Center(
-                      child: Text('Mark as missed',
-                        style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w600,
-                          color: AppColors.label,
-                        )),
-                    ),
-                  ),
+                _secondaryButton(label: 'Mark as missed',
+                    onTap: _saving ? null : _fail),
+              ] else if (status == 'failed') ...[
+                // A missed task can now be reopened (this is what was bothering
+                // the user — failed = total dead end). Reopening also reschedules
+                // notifications via _load → no orphaned state.
+                FilledButton(
+                  onPressed: _saving ? null : () async {
+                    setState(() => _saving = true);
+                    await SupabaseService.updateTask(widget.taskId,
+                        {'status': 'pending', 'completed_at': null});
+                    if (sched != null) {
+                      await NotificationService().scheduleTaskNotifications(
+                          taskId: widget.taskId, taskTitle: t['title'] ?? '',
+                          deadline: sched);
+                    }
+                    if (mounted) { setState(() => _saving = false); _load(); }
+                  },
+                  child: const Text('Re-open task'),
                 ),
               ],
             ],
@@ -373,6 +375,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       ]),
     ),
   );
+
+  // Shared little secondary button — keeps the body free of duplication.
+  Widget _secondaryButton({required String label, VoidCallback? onTap}) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 52,
+          decoration: BoxDecoration(
+            color: AppColors.bg2,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.separator, width: 0.8),
+          ),
+          child: Center(
+            child: Text(label,
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600,
+                  color: AppColors.label)),
+          ),
+        ),
+      );
 
   Widget _notesCard(Map<String, dynamic> t) {
     final hasNotes = (t['description'] as String?)?.isNotEmpty == true;

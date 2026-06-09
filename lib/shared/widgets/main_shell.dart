@@ -11,17 +11,16 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  // Last rendered tab — used to derive slide direction deterministically
-  // (computing direction inside onTap races with go_router's async update).
+  // Last rendered tab — used to derive slide direction deterministically.
   int _prev = 0;
   int _lastDir = 1;
 
   static const _routes = ['/dashboard', '/calendar', '/settings'];
-
-  static const _items = [
-    _NavItem(Icons.house_rounded,          Icons.house_outlined,          'Home'),
-    _NavItem(Icons.calendar_today_rounded, Icons.calendar_today_outlined, 'Calendar'),
-    _NavItem(Icons.person_rounded,         Icons.person_outline_rounded,  'Profile'),
+  // Icons-only nav per request → no label strings needed.
+  static const _icons = <_NavIcon>[
+    _NavIcon(Icons.house_rounded, Icons.house_outlined),
+    _NavIcon(Icons.calendar_today_rounded, Icons.calendar_today_outlined),
+    _NavIcon(Icons.person_rounded, Icons.person_outline_rounded),
   ];
 
   int _indexFor(String path) {
@@ -45,9 +44,6 @@ class _MainShellState extends State<MainShell> {
     final path       = GoRouterState.of(context).uri.path;
     final routeIndex = _indexFor(path);
 
-    // +1 = moving to a higher tab → new screen enters from the right.
-    // -1 = moving to a lower tab → new screen enters from the left
-    //      (e.g. Calendar→Home is a left→right sweep).
     final dir = routeIndex > _prev ? 1 : (routeIndex < _prev ? -1 : _lastDir);
     _lastDir = dir;
     if (routeIndex != _prev) {
@@ -60,17 +56,24 @@ class _MainShellState extends State<MainShell> {
       extendBody: true,
       backgroundColor: AppColors.bg,
       body: ClipRect(
+        // Single-direction silky transition: cross-fade + a small parallax slide
+        // (not a full screen sweep — that caused the jank/jitter on rapid switch).
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 340),
+          duration: const Duration(milliseconds: 280),
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
           transitionBuilder: (child, animation) {
             final entering = child.key == ValueKey(routeIndex);
-            // Full-width slide — a clear, whole-screen transition.
-            final begin = Offset(entering ? dir.toDouble() : -dir.toDouble(), 0);
-            return SlideTransition(
-              position: Tween<Offset>(begin: begin, end: Offset.zero).animate(animation),
-              child: child,
+            // Subtle 24% horizontal parallax so it feels directional but doesn't
+            // fight the user. Only the incoming view moves — outgoing just fades.
+            final begin = Offset(entering ? dir * 0.24 : 0.0, 0);
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(begin: begin, end: Offset.zero)
+                    .animate(animation),
+                child: child,
+              ),
             );
           },
           layoutBuilder: (current, previous) =>
@@ -79,87 +82,77 @@ class _MainShellState extends State<MainShell> {
         ),
       ),
 
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.fromLTRB(40, 0, 40, 26),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(36),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-            child: Container(
-              height: 68,
-              decoration: BoxDecoration(
-                color: AppColors.glass,
-                borderRadius: BorderRadius.circular(36),
-                border: Border.all(color: AppColors.glassBorder, width: 0.8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: AppColors.isDark ? 0.45 : 0.10),
-                    blurRadius: 30,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: LayoutBuilder(builder: (ctx, c) {
-                final slot = c.maxWidth / _items.length;
-                return Stack(children: [
-                  // ── Sliding ink bubble (vertically centred) ─────
-                  AnimatedPositioned(
-                    duration: const Duration(milliseconds: 340),
-                    curve: Curves.easeOutCubic,
-                    left: routeIndex * slot,
-                    top: 0, bottom: 0, width: slot,
-                    child: Center(
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-                        decoration: BoxDecoration(
-                          color: AppColors.label,
-                          borderRadius: BorderRadius.circular(24),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(70, 0, 70, 18),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(34),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+              child: Container(
+                height: 62,
+                decoration: BoxDecoration(
+                  color: AppColors.glass,
+                  borderRadius: BorderRadius.circular(34),
+                  border: Border.all(color: AppColors.glassBorder, width: 0.8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black
+                          .withValues(alpha: AppColors.isDark ? 0.40 : 0.08),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: LayoutBuilder(builder: (ctx, c) {
+                  final slot = c.maxWidth / _icons.length;
+                  return Stack(children: [
+                    // ── Sliding ink bubble — circular pill around the icon ─
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 320),
+                      curve: Curves.easeOutCubic,
+                      left: routeIndex * slot,
+                      top: 0, bottom: 0, width: slot,
+                      child: Center(
+                        child: Container(
+                          width: 44, height: 44,
+                          decoration: BoxDecoration(
+                            color: AppColors.label,
+                            shape: BoxShape.circle,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  // ── Tab buttons (fill height, centred content) ──
-                  Positioned.fill(
-                    child: Row(
-                      children: List.generate(_items.length, (i) {
-                        final item     = _items[i];
-                        final selected = routeIndex == i;
-                        return Expanded(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => _onTab(context, i, routeIndex),
-                            child: Center(
-                              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                Icon(
-                                  selected ? item.activeIcon : item.icon,
-                                  color: selected ? AppColors.bg : AppColors.label3,
-                                  size: 23,
+                    // ── Tab tap targets (icon only, centred) ───────────────
+                    Positioned.fill(
+                      child: Row(
+                        children: List.generate(_icons.length, (i) {
+                          final ic = _icons[i];
+                          final selected = routeIndex == i;
+                          return Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => _onTab(context, i, routeIndex),
+                              child: Center(
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 220),
+                                  child: Icon(
+                                    selected ? ic.active : ic.idle,
+                                    key: ValueKey(selected),
+                                    color: selected ? AppColors.bg : AppColors.label3,
+                                    size: 22,
+                                  ),
                                 ),
-                                AnimatedSize(
-                                  duration: const Duration(milliseconds: 280),
-                                  curve: Curves.easeOutCubic,
-                                  child: selected
-                                      ? Padding(
-                                          padding: const EdgeInsets.only(left: 8),
-                                          child: Text(item.label,
-                                              style: TextStyle(
-                                                color: AppColors.bg,
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w700,
-                                                letterSpacing: -0.2,
-                                              )),
-                                        )
-                                      : const SizedBox.shrink(),
-                                ),
-                              ]),
+                              ),
                             ),
-                          ),
-                        );
-                      }),
+                          );
+                        }),
+                      ),
                     ),
-                  ),
-                ]);
-              }),
+                  ]);
+                }),
+              ),
             ),
           ),
         ),
@@ -168,8 +161,7 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-class _NavItem {
-  final IconData activeIcon, icon;
-  final String label;
-  const _NavItem(this.activeIcon, this.icon, this.label);
+class _NavIcon {
+  final IconData active, idle;
+  const _NavIcon(this.active, this.idle);
 }

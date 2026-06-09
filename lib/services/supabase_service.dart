@@ -198,26 +198,95 @@ class SupabaseService {
         .createSignedUrl(path, 3600 * 24);
   }
 
-  // ── Friends ────────────────────────────────────────────
+  // ── Users / search ─────────────────────────────────────
 
-  static Future<Map<String, dynamic>?> searchUserByEmail(String email) async {
+  /// True iff this username can be claimed at signup. Server-side RPC so the
+  /// rule (lowercased, stripped to a-z0-9_) matches what the DB actually stores.
+  static Future<bool> isUsernameAvailable(String username) async {
+    final clean = username.toLowerCase().trim();
+    if (clean.length < 3 || clean.length > 24) return false;
+    try {
+      final res = await client.rpc('username_available', params: {'p': clean});
+      return res == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Find someone by @username (preferred) — falls back to email if it
+  /// contains an @ (so existing email-based flows still work).
+  static Future<Map<String, dynamic>?> searchUserByHandle(String handle) async {
     final myId = client.auth.currentUser?.id;
+    final q = handle.toLowerCase().trim().replaceFirst(RegExp(r'^@'), '');
+    if (q.isEmpty) return null;
+    final byUsername = await client
+        .from('users')
+        .select('id, email, username')
+        .eq('username', q)
+        .maybeSingle();
+    if (byUsername != null && byUsername['id'] != myId) return byUsername;
+    if (q.contains('@')) {
+      final byEmail = await client
+          .from('users')
+          .select('id, email, username')
+          .eq('email', q)
+          .maybeSingle();
+      if (byEmail != null && byEmail['id'] != myId) return byEmail;
+    }
+    return null;
+  }
+
+  /// Backwards-compat alias for the older code paths still calling this name.
+  static Future<Map<String, dynamic>?> searchUserByEmail(String email) =>
+      searchUserByHandle(email);
+
+  /// Resolve a username → email so the user can sign in with either.
+  /// Returns null if no such user (caller treats input as email already).
+  static Future<String?> emailForUsername(String username) async {
+    final clean = username.toLowerCase().trim();
+    if (clean.isEmpty || clean.contains('@')) return null;
     final res = await client
         .from('users')
-        .select('id, email')
-        .eq('email', email.toLowerCase().trim())
+        .select('email')
+        .eq('username', clean)
         .maybeSingle();
-    if (res == null) return null;
-    if (res['id'] == myId) return null; // can't add yourself
-    return res;
+    return res?['email'] as String?;
   }
+
+  /// Random "you might know…" friend suggestions — people I'm not already
+  /// connected to (no friendship row in either direction) and aren't me.
+  /// Capped at [limit]; deliberately lightweight (UI sugar, not a graph algo).
+  static Future<List<Map<String, dynamic>>> getFriendSuggestions({int limit = 6}) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return [];
+
+    // IDs I'm already tied to (any status).
+    final mine = await client
+        .from('friendships')
+        .select('requester_id, addressee_id')
+        .or('requester_id.eq.$me,addressee_id.eq.$me');
+    final excluded = <String>{me};
+    for (final row in (mine as List)) {
+      excluded.add(row['requester_id'] as String);
+      excluded.add(row['addressee_id'] as String);
+    }
+
+    final all = List<Map<String, dynamic>>.from(
+      await client.from('users').select('id, username, email').limit(40),
+    );
+    final candidates = all.where((u) => !excluded.contains(u['id'])).toList();
+    candidates.shuffle();
+    return candidates.take(limit).toList();
+  }
+
+  // ── Friends ────────────────────────────────────────────
 
   static Future<List<Map<String, dynamic>>> getFriendships() async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return [];
     final res = await client
         .from('friendships')
-        .select('id, status, created_at, requester_id, addressee_id, requester:users!friendships_requester_id_fkey(id, email), addressee:users!friendships_addressee_id_fkey(id, email)')
+        .select('id, status, created_at, requester_id, addressee_id, requester:users!friendships_requester_id_fkey(id, email, username), addressee:users!friendships_addressee_id_fkey(id, email, username)')
         .or('requester_id.eq.$userId,addressee_id.eq.$userId')
         .order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(res);
@@ -248,7 +317,7 @@ class SupabaseService {
     if (userId == null) return [];
     final res = await client
         .from('challenges')
-        .select('id, title, status, created_at, creator_id, partner_id, creator:users!challenges_creator_id_fkey(id, email), partner:users!challenges_partner_id_fkey(id, email)')
+        .select('id, title, status, created_at, creator_id, partner_id, creator_done, partner_done, completed_at, creator:users!challenges_creator_id_fkey(id, email, username), partner:users!challenges_partner_id_fkey(id, email, username)')
         .or('creator_id.eq.$userId,partner_id.eq.$userId')
         .eq('status', 'active')
         .order('created_at', ascending: false);
@@ -271,6 +340,72 @@ class SupabaseService {
 
   static Future<void> abandonChallenge(String challengeId) async {
     await client.from('challenges').update({'status': 'abandoned'}).eq('id', challengeId);
+  }
+
+  /// Mark MY side of this challenge done. The DB trigger flips status to
+  /// 'completed' when both sides are done — we don't decide that client-side.
+  static Future<void> markChallengeSideDone(Map<String, dynamic> c) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return;
+    final isCreator = c['creator_id'] == me;
+    final field = isCreator ? 'creator_done' : 'partner_done';
+    final stampField = isCreator ? 'creator_completed_at' : 'partner_completed_at';
+    await client.from('challenges').update({
+      field: true,
+      stampField: DateTime.now().toIso8601String(),
+    }).eq('id', c['id']);
+  }
+
+  /// Send the other side a nudge. The DB rate-limit (1/hour) is authoritative;
+  /// surface its error so the UI can show a friendly message.
+  static Future<String?> nudgeChallengePartner(Map<String, dynamic> c) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return 'Not signed in';
+    final other = c['creator_id'] == me ? c['partner_id'] : c['creator_id'];
+    try {
+      await client.from('nudges').insert({
+        'challenge_id': c['id'],
+        'from_user_id': me,
+        'to_user_id': other,
+        'message': "Don't forget your challenge — '${c['title']}'",
+      });
+      return null;
+    } catch (e) {
+      final s = e.toString();
+      if (s.contains('NUDGE_RATE_LIMITED')) return 'You just nudged — wait a bit.';
+      return 'Could not nudge right now';
+    }
+  }
+
+  /// Unread nudges for me (used to badge the Friends entry).
+  static Future<int> unseenNudgeCount() async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return 0;
+    final res = await client.from('nudges')
+        .select('id')
+        .eq('to_user_id', me)
+        .eq('seen', false);
+    return (res as List).length;
+  }
+
+  /// Latest nudges to me (for an inbox view).
+  static Future<List<Map<String, dynamic>>> getNudges() async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return [];
+    return List<Map<String, dynamic>>.from(
+      await client.from('nudges')
+          .select('id, message, seen, created_at, challenge_id, from_user_id, from:users!nudges_from_user_id_fkey(username, email)')
+          .eq('to_user_id', me)
+          .order('created_at', ascending: false)
+          .limit(20),
+    );
+  }
+
+  static Future<void> markNudgesSeen() async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return;
+    await client.from('nudges').update({'seen': true})
+        .eq('to_user_id', me).eq('seen', false);
   }
 
   // ── Collaboration ──────────────────────────────────────

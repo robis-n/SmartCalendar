@@ -50,6 +50,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
     await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: Colors.transparent,
+      // Use root navigator so the sheet covers the bottom nav (no peeking),
+      // and a near-transparent scrim so the calendar doesn't visibly "dim"
+      // — the glass sheet already separates fg from bg by itself.
+      useRootNavigator: true,
+      barrierColor: AppColors.bg.withValues(alpha: 0.04),
       isScrollControlled: true,
       builder: (_) => _DaySheet(
         day: day,
@@ -332,14 +337,14 @@ class _DaySheetState extends State<_DaySheet> {
   }
 
   Future<void> _openTask(Map<String, dynamic> task) async {
-    final r = await Navigator.of(context).push(MaterialPageRoute(
+    final r = await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (_) => TaskDetailScreen(taskId: task['id']),
     ));
     if (r != null) { widget.onChanged(); await _load(); }
   }
 
   Future<void> _addTask() async {
-    final r = await Navigator.of(context).push(MaterialPageRoute(
+    final r = await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (_) => AddTaskScreen(initialDate: widget.day),
     ));
     if (r == true) { widget.onChanged(); await _load(); }

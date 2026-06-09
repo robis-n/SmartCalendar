@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,29 +13,55 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _email    = TextEditingController();
-  final _password = TextEditingController();
-  bool _loading  = false;
-  bool _obscure  = true;
-  bool _isSignUp = false;
+  // Sign-in uses one field (username OR email); sign-up has the full triad.
+  final _identifier = TextEditingController(); // sign-in: username|email
+  final _username   = TextEditingController();
+  final _email      = TextEditingController();
+  final _password   = TextEditingController();
+
+  bool _loading   = false;
+  bool _obscure   = true;
+  bool _isSignUp  = false;
+
+  // Username availability checks (debounced) — null = unknown / not yet checked.
+  bool? _usernameOk;
+  Timer? _usernameDebounce;
 
   @override
-  void dispose() { _email.dispose(); _password.dispose(); super.dispose(); }
+  void dispose() {
+    _identifier.dispose();
+    _username.dispose();
+    _email.dispose();
+    _password.dispose();
+    _usernameDebounce?.cancel();
+    super.dispose();
+  }
 
   void _submit() => _isSignUp ? _signUp() : _signIn();
 
+  // ── Sign in (username OR email) ────────────────────────────────────────────
+
   Future<void> _signIn() async {
     setState(() => _loading = true);
+    final raw = _identifier.text.trim();
     try {
-      if (_email.text.trim() == AppConstants.ceoEmail &&
+      // CEO shortcut keeps working (matches by email).
+      if (raw == AppConstants.ceoEmail &&
           _password.text.trim() == AppConstants.ceoPassword) {
-        await _ceoLogin(); return;
+        await _ceoLogin();
+        return;
       }
+
+      // If user typed a username (no @), resolve to email first.
+      final email = raw.contains('@')
+          ? raw
+          : (await SupabaseService.emailForUsername(raw)) ?? raw;
+
       await Supabase.instance.client.auth.signInWithPassword(
-        email: _email.text.trim(), password: _password.text.trim());
+          email: email, password: _password.text.trim());
       if (mounted) context.go('/dashboard');
     } catch (e) {
-      _snack(e.toString());
+      _snack(_friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -42,40 +69,79 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _ceoLogin() async {
     try {
-      await Supabase.instance.client.auth
-          .signInWithPassword(email: AppConstants.ceoEmail, password: AppConstants.ceoPassword);
+      await Supabase.instance.client.auth.signInWithPassword(
+          email: AppConstants.ceoEmail, password: AppConstants.ceoPassword);
     } catch (_) {
-      await Supabase.instance.client.auth
-          .signUp(email: AppConstants.ceoEmail, password: AppConstants.ceoPassword);
+      await Supabase.instance.client.auth.signUp(
+          email: AppConstants.ceoEmail, password: AppConstants.ceoPassword,
+          data: const {'username': 'ceo'});
       await Future.delayed(const Duration(milliseconds: 800));
-      await Supabase.instance.client.auth
-          .signInWithPassword(email: AppConstants.ceoEmail, password: AppConstants.ceoPassword);
+      await Supabase.instance.client.auth.signInWithPassword(
+          email: AppConstants.ceoEmail, password: AppConstants.ceoPassword);
     }
     final uid = Supabase.instance.client.auth.currentUser?.id;
     if (uid != null) {
       await SupabaseService.upsertUserProfile({
         'id': uid, 'email': AppConstants.ceoEmail,
-        'subscription_tier': AppConstants.tierAdmin,
+        'username': 'ceo', 'subscription_tier': AppConstants.tierAdmin,
       });
     }
     if (mounted) context.go('/dashboard');
   }
 
+  // ── Sign up (with username) ────────────────────────────────────────────────
+
   Future<void> _signUp() async {
+    final uname = _username.text.trim().toLowerCase();
+    if (uname.length < 3) { _snack('Pick a username (3+ characters)'); return; }
+    if (_usernameOk == false) { _snack('That username is taken'); return; }
+    if (!_email.text.contains('@'))   { _snack('Enter a valid email'); return; }
+    if (_password.text.length < 6)    { _snack('Password must be 6+ characters'); return; }
+
     setState(() => _loading = true);
     try {
-      await Supabase.instance.client.auth
-          .signUp(email: _email.text.trim(), password: _password.text.trim());
+      // Final server-side check (catches races between debounce + tap).
+      final stillFree = await SupabaseService.isUsernameAvailable(uname);
+      if (!stillFree) { _snack('That username was just taken — try another'); return; }
+
+      // The DB trigger reads raw_user_meta_data.username to set the profile row.
+      await Supabase.instance.client.auth.signUp(
+        email: _email.text.trim(),
+        password: _password.text.trim(),
+        data: {'username': uname},
+      );
       _snack('Check your email to confirm your account ✉️');
     } catch (e) {
-      _snack(e.toString());
+      _snack(_friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  // Live username availability check (debounced 350ms).
+  void _checkUsername(String v) {
+    _usernameDebounce?.cancel();
+    final clean = v.trim().toLowerCase();
+    setState(() => _usernameOk = null);
+    if (clean.length < 3) return;
+    _usernameDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final ok = await SupabaseService.isUsernameAvailable(clean);
+      if (mounted) setState(() => _usernameOk = ok);
+    });
+  }
+
+  String _friendlyError(Object e) {
+    final s = e.toString();
+    if (s.contains('Invalid login credentials')) return 'Wrong username/email or password';
+    if (s.contains('Email not confirmed'))       return 'Confirm your email first';
+    if (s.contains('User already registered'))   return 'That email is already in use';
+    return s.replaceFirst('Exception: ', '');
+  }
+
   void _snack(String m) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -120,35 +186,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 36),
 
-                // Fields
-                TextField(
-                  controller: _email,
-                  keyboardType: TextInputType.emailAddress,
-                  autocorrect: false,
-                  textAlign: TextAlign.center,
-                  textInputAction: TextInputAction.next,
-                  style: TextStyle(fontSize: 16, color: AppColors.label),
-                  decoration: const InputDecoration(hintText: 'Email'),
+                // Fields — crossfade between sign-in (1 field) and sign-up (3 fields).
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 280),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: _isSignUp ? _signUpFields() : _signInFields(),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _password,
-                  obscureText: _obscure,
-                  textAlign: TextAlign.center,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _submit(),
-                  style: TextStyle(fontSize: 16, color: AppColors.label),
-                  decoration: InputDecoration(
-                    hintText: 'Password',
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                        color: AppColors.label3, size: 20,
-                      ),
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                    ),
-                  ),
-                ),
+
                 const SizedBox(height: 22),
 
                 // Submit
@@ -173,7 +218,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 // Mode toggle
                 GestureDetector(
-                  onTap: _loading ? null : () => setState(() => _isSignUp = !_isSignUp),
+                  onTap: _loading ? null : () => setState(() {
+                    _isSignUp = !_isSignUp;
+                    _usernameOk = null;
+                  }),
                   behavior: HitTestBehavior.opaque,
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
@@ -200,6 +248,78 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+
+  // ── Field sets ─────────────────────────────────────────────────────────────
+
+  Widget _signInFields() => Column(key: const ValueKey('signin'), children: [
+    TextField(
+      controller: _identifier,
+      autocorrect: false,
+      textAlign: TextAlign.center,
+      textInputAction: TextInputAction.next,
+      style: TextStyle(fontSize: 16, color: AppColors.label),
+      decoration: const InputDecoration(hintText: 'Username or email'),
+    ),
+    const SizedBox(height: 12),
+    _passwordField(),
+  ]);
+
+  Widget _signUpFields() => Column(key: const ValueKey('signup'), children: [
+    TextField(
+      controller: _username,
+      autocorrect: false,
+      textAlign: TextAlign.center,
+      textInputAction: TextInputAction.next,
+      onChanged: _checkUsername,
+      style: TextStyle(fontSize: 16, color: AppColors.label),
+      decoration: InputDecoration(
+        hintText: 'Username',
+        suffixIcon: _usernameOk == null
+            ? null
+            : Icon(
+                _usernameOk! ? Icons.check_rounded : Icons.close_rounded,
+                color: AppColors.label2, size: 20,
+              ),
+      ),
+    ),
+    if (_usernameOk == false)
+      Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text('That username is taken',
+          style: TextStyle(color: AppColors.label2, fontSize: 13)),
+      ),
+    const SizedBox(height: 12),
+    TextField(
+      controller: _email,
+      keyboardType: TextInputType.emailAddress,
+      autocorrect: false,
+      textAlign: TextAlign.center,
+      textInputAction: TextInputAction.next,
+      style: TextStyle(fontSize: 16, color: AppColors.label),
+      decoration: const InputDecoration(hintText: 'Email'),
+    ),
+    const SizedBox(height: 12),
+    _passwordField(),
+  ]);
+
+  Widget _passwordField() => TextField(
+    controller: _password,
+    obscureText: _obscure,
+    textAlign: TextAlign.center,
+    textInputAction: TextInputAction.done,
+    onSubmitted: (_) => _submit(),
+    style: TextStyle(fontSize: 16, color: AppColors.label),
+    decoration: InputDecoration(
+      hintText: 'Password',
+      suffixIcon: IconButton(
+        icon: Icon(
+          _obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+          color: AppColors.label3, size: 20,
+        ),
+        onPressed: () => setState(() => _obscure = !_obscure),
+      ),
+    ),
+  );
 }
 
 /// Gentle fade + rise on first appear — silky entrance.

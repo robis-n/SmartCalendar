@@ -75,14 +75,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  // rootNavigator: true → these full-screen modals cover the bottom nav and
+  // any sub-dialogs (e.g. time picker) sit cleanly on a sterile background.
   Future<void> _openAddTask() async {
-    final r = await Navigator.of(context)
+    final r = await Navigator.of(context, rootNavigator: true)
         .push(MaterialPageRoute(builder: (_) => const AddTaskScreen()));
     if (r == true && mounted) _load();
   }
 
   Future<void> _openDetail(Map<String, dynamic> task) async {
-    final r = await Navigator.of(context)
+    final r = await Navigator.of(context, rootNavigator: true)
         .push(MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: task['id'])));
     if (r != null && mounted) _load();
   }
@@ -96,7 +98,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
       return;
     }
-    final r = await Navigator.of(context).push(MaterialPageRoute(
+    final r = await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
       builder: (_) => VerificationScreen(taskId: task['id'], taskTitle: task['title']),
     ));
     if (r != null && mounted) _load();
