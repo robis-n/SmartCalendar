@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../services/local_verification_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
@@ -103,7 +102,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   Widget build(BuildContext context) {
     final verified  = _result?['verified'] == true;
     final failed    = _result != null && !verified;
-    final resultColor = verified ? AppColors.success : AppColors.destructive;
+    final resultColor = Colors.white;
     final attemptsLeft = _maxAttempts - _attempts;
 
     return PopScope(
@@ -128,7 +127,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 ),
 
                 // Header
-                const Icon(Icons.camera_alt_rounded, size: 40, color: AppColors.accent),
+                const Icon(Icons.camera_alt_rounded, size: 40, color: Colors.white),
                 const SizedBox(height: 10),
                 const Text('Verify Task',
                     textAlign: TextAlign.center,
@@ -234,7 +233,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                           : const Icon(Icons.verified, size: 18),
                       label: Text(_loading ? 'Checking…' : 'Verify'),
                       style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.accent,
+                        backgroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                     ),

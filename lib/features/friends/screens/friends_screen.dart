@@ -52,12 +52,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
     return (c['creator'] as Map?)?['email'] ?? '?';
   }
 
-  void _snack(String m, {bool error = false}) {
+  void _snack(String m) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(m),
-          backgroundColor: error ? AppColors.destructive : null),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
 
   // ── Dialogs ────────────────────────────────────────────
@@ -68,7 +65,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, ss) => AlertDialog(
-        title: const Text('Add Friend'),
+        title: const Text('Add friend'),
         content: TextField(
           controller: ctrl,
           keyboardType: TextInputType.emailAddress,
@@ -78,6 +75,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(80, 44)),
             onPressed: loading ? null : () async {
               final email = ctrl.text.trim();
               if (email.isEmpty) return;
@@ -87,7 +85,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 if (!ctx.mounted) return;
                 if (user == null) {
                   Navigator.pop(ctx);
-                  _snack('User not found.', error: true);
+                  _snack('User not found.');
                   return;
                 }
                 await SupabaseService.sendFriendRequest(user['id']);
@@ -98,11 +96,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
               } catch (e) {
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx);
-                _snack(e.toString().contains('unique') ? 'Already friends or request pending.' : 'Error: $e', error: true);
+                _snack(e.toString().contains('unique') ? 'Already friends or request pending.' : 'Error: $e');
               }
             },
             child: loading
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.bg))
+                ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.bg))
                 : const Text('Send'),
           ),
         ],
@@ -128,6 +126,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(80, 44)),
             onPressed: loading ? null : () async {
               if (ctrl.text.trim().isEmpty) return;
               ss(() => loading = true);
@@ -152,38 +151,49 @@ class _FriendsScreenState extends State<FriendsScreen> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Column(children: [
-        // ── Editorial Header ──────────────────────────────
+        // ── Header ────────────────────────────────────────
         SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            padding: const EdgeInsets.fromLTRB(16, 14, 20, 16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('FRIENDS',
-                style: TextStyle(
-                  fontSize: 10, fontWeight: FontWeight.w700,
-                  color: AppColors.accent, letterSpacing: 2.0,
-                )),
-              const SizedBox(height: 12),
-              Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                Text(totalFriends == 0 ? 'No friends yet' : '$totalFriends friend${totalFriends == 1 ? '' : 's'}',
-                  style: const TextStyle(
-                    fontSize: 28, fontWeight: FontWeight.w900,
-                    color: AppColors.label, letterSpacing: -1,
+              Row(children: [
+                GestureDetector(
+                  onTap: () => Navigator.of(context).maybePop(),
+                  child: Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: AppColors.bg2,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.separator, width: 0.8),
+                    ),
+                    child: Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: AppColors.label),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Text('Friends',
+                  style: TextStyle(
+                    fontSize: 30, fontWeight: FontWeight.w800,
+                    color: AppColors.label, letterSpacing: -1.2,
                   )),
                 const Spacer(),
                 GestureDetector(
                   onTap: _addFriendDialog,
                   child: Container(
-                    width: 40, height: 40,
+                    width: 44, height: 44,
                     decoration: BoxDecoration(
-                      color: AppColors.accentLight,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
+                      color: AppColors.label,
+                      shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.person_add_outlined, color: AppColors.accent, size: 18),
+                    child: Icon(Icons.person_add_alt_1_rounded, color: AppColors.bg, size: 20),
                   ),
                 ),
               ]),
+              const SizedBox(height: 14),
+              Text(
+                totalFriends == 0 ? 'No friends yet' : '$totalFriends friend${totalFriends == 1 ? '' : 's'}',
+                style: TextStyle(fontSize: 15, color: AppColors.label3, fontWeight: FontWeight.w500),
+              ),
             ]),
           ),
         ),
@@ -191,43 +201,40 @@ class _FriendsScreenState extends State<FriendsScreen> {
         // ── Body ──────────────────────────────────────────
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.accent))
+              ? Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.label))
               : RefreshIndicator(
                   onRefresh: _load,
-                  color: AppColors.accent,
+                  color: AppColors.label,
+                  backgroundColor: AppColors.card,
                   child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
                     children: [
-                      // Incoming requests
                       if (_incoming.isNotEmpty) ...[
                         _sectionLabel('Requests', badge: _incoming.length),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         _card(children: _incoming.mapIndexed((i, f) => _requestTile(f, i, _incoming.length)).toList()),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 18),
                       ],
 
-                      // Friends
                       _sectionLabel('Friends'),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       if (_accepted.isEmpty)
                         _emptyCard('No friends yet — tap + to add one')
                       else
                         _card(children: _accepted.mapIndexed((i, f) => _friendTile(f, i, _accepted.length)).toList()),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 18),
 
-                      // Challenges
                       _sectionLabel('Challenges'),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       if (_challenges.isEmpty)
                         _emptyCard('No active challenges')
                       else
                         _card(children: _challenges.mapIndexed((i, c) => _challengeTile(c, i, _challenges.length)).toList()),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 18),
 
-                      // Sent requests
                       if (_sent.isNotEmpty) ...[
                         _sectionLabel('Sent'),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         _card(children: _sent.mapIndexed((i, f) => _sentTile(f, i, _sent.length)).toList()),
                       ],
                     ],
@@ -242,17 +249,17 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   Widget _sectionLabel(String title, {int? badge}) => Row(children: [
     Text(title.toUpperCase(),
-      style: const TextStyle(
-        fontSize: 11, color: AppColors.label3,
-        fontWeight: FontWeight.w700, letterSpacing: 0.8,
+      style: TextStyle(
+        fontSize: 12, color: AppColors.label3,
+        fontWeight: FontWeight.w800, letterSpacing: 1.5,
       )),
     if (badge != null && badge > 0) ...[
-      const SizedBox(width: 6),
+      const SizedBox(width: 8),
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-        decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        decoration: BoxDecoration(color: AppColors.label, borderRadius: BorderRadius.circular(10)),
         child: Text('$badge',
-          style: const TextStyle(fontSize: 10, color: AppColors.bg, fontWeight: FontWeight.w700)),
+          style: TextStyle(fontSize: 11, color: AppColors.bg, fontWeight: FontWeight.w700)),
       ),
     ],
   ]);
@@ -261,6 +268,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     decoration: BoxDecoration(
       color: AppColors.card,
       borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: AppColors.separator, width: 0.5),
       boxShadow: cardShadow,
     ),
     clipBehavior: Clip.hardEdge,
@@ -271,35 +279,37 @@ class _FriendsScreenState extends State<FriendsScreen> {
     decoration: BoxDecoration(
       color: AppColors.card,
       borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: AppColors.separator, width: 0.5),
       boxShadow: cardShadow,
     ),
-    padding: const EdgeInsets.all(20),
+    padding: const EdgeInsets.all(22),
     child: Center(
-      child: Text(text, style: const TextStyle(fontSize: 14, color: AppColors.label3)),
+      child: Text(text, style: TextStyle(fontSize: 15, color: AppColors.label3)),
     ),
   );
 
   Widget _requestTile(Map<String, dynamic> f, int i, int total) => Column(children: [
     Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(children: [
         _avatar(_email(f)),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(_email(f), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.label)),
+          Text(_email(f), maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.label)),
           const SizedBox(height: 2),
-          const Text('wants to connect', style: TextStyle(fontSize: 12, color: AppColors.label3)),
+          Text('wants to connect', style: TextStyle(fontSize: 13, color: AppColors.label3)),
         ])),
         const SizedBox(width: 8),
         GestureDetector(
           onTap: () async { await SupabaseService.declineFriendRequest(f['id']); _load(); },
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
             decoration: BoxDecoration(
               color: AppColors.bg2,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Text('Decline', style: TextStyle(fontSize: 12, color: AppColors.label2, fontWeight: FontWeight.w500)),
+            child: Text('Decline', style: TextStyle(fontSize: 13, color: AppColors.label2, fontWeight: FontWeight.w500)),
           ),
         ),
         const SizedBox(width: 6),
@@ -310,49 +320,51 @@ class _FriendsScreenState extends State<FriendsScreen> {
             _load();
           },
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
             decoration: BoxDecoration(
-              color: AppColors.accent,
+              color: AppColors.label,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Text('Accept', style: TextStyle(fontSize: 12, color: AppColors.bg, fontWeight: FontWeight.w600)),
+            child: Text('Accept', style: TextStyle(fontSize: 13, color: AppColors.bg, fontWeight: FontWeight.w600)),
           ),
         ),
       ]),
     ),
-    if (i < total - 1) const Divider(height: 1, indent: 68, endIndent: 16),
+    if (i < total - 1) Container(height: 0.5, color: AppColors.separator,
+        margin: const EdgeInsets.only(left: 68, right: 16)),
   ]);
 
   Widget _friendTile(Map<String, dynamic> f, int i, int total) => Column(children: [
     Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(children: [
         _avatar(_email(f)),
         const SizedBox(width: 12),
-        Expanded(child: Text(_email(f),
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.label))),
+        Expanded(child: Text(_email(f), maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: AppColors.label))),
         GestureDetector(
           onTap: () => _challengeDialog(f),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
             decoration: BoxDecoration(
-              color: AppColors.accentLight,
+              color: AppColors.bg2,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Text('Challenge',
-              style: TextStyle(fontSize: 12, color: AppColors.accent, fontWeight: FontWeight.w600)),
+            child: Text('Challenge',
+              style: TextStyle(fontSize: 13, color: AppColors.label, fontWeight: FontWeight.w600)),
           ),
         ),
         const SizedBox(width: 4),
         GestureDetector(
           onTap: () => showModalBottomSheet(
             context: context,
+            backgroundColor: AppColors.card,
             builder: (ctx) => SafeArea(child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
-                  leading: const Icon(Icons.person_remove_outlined, color: AppColors.destructive),
-                  title: const Text('Remove friend', style: TextStyle(color: AppColors.destructive)),
+                  leading: Icon(Icons.person_remove_outlined, color: AppColors.label),
+                  title: Text('Remove friend', style: TextStyle(color: AppColors.label)),
                   onTap: () async {
                     Navigator.pop(ctx);
                     await SupabaseService.declineFriendRequest(f['id']);
@@ -362,34 +374,39 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ],
             )),
           ),
-          child: const Icon(Icons.more_horiz, size: 20, color: AppColors.label3),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(Icons.more_horiz, size: 22, color: AppColors.label3),
+          ),
         ),
       ]),
     ),
-    if (i < total - 1) const Divider(height: 1, indent: 68, endIndent: 16),
+    if (i < total - 1) Container(height: 0.5, color: AppColors.separator,
+        margin: const EdgeInsets.only(left: 68, right: 16)),
   ]);
 
   Widget _challengeTile(Map<String, dynamic> c, int i, int total) => Column(children: [
     Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(children: [
         Container(
-          width: 40, height: 40,
+          width: 44, height: 44,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: AppColors.warning.withValues(alpha: 0.12),
+            color: AppColors.bg2,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.emoji_events, size: 20, color: AppColors.warning),
+          child: Icon(Icons.emoji_events_outlined, size: 22, color: AppColors.label),
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(c['title'] ?? '',
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.label)),
+          Text(c['title'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.label)),
           const SizedBox(height: 2),
           Text(
             'with ${_partnerEmail(c)} · ${DateTime.now().difference(DateTime.parse(c['created_at'])).inDays}d',
-            style: const TextStyle(fontSize: 12, color: AppColors.label3),
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 13, color: AppColors.label3),
           ),
         ])),
         GestureDetector(
@@ -403,61 +420,59 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep going')),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Abandon', style: TextStyle(color: AppColors.destructive)),
+                    child: Text('Abandon', style: TextStyle(color: AppColors.label, fontWeight: FontWeight.w700)),
                   ),
                 ],
               ),
             );
             if (ok == true) { await SupabaseService.abandonChallenge(c['id']); _load(); }
           },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.destructiveBg,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(Icons.flag_outlined, size: 16, color: AppColors.destructive),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(Icons.flag_outlined, size: 20, color: AppColors.label3),
           ),
         ),
       ]),
     ),
-    if (i < total - 1) const Divider(height: 1, indent: 68, endIndent: 16),
+    if (i < total - 1) Container(height: 0.5, color: AppColors.separator,
+        margin: const EdgeInsets.only(left: 68, right: 16)),
   ]);
 
   Widget _sentTile(Map<String, dynamic> f, int i, int total) => Column(children: [
     Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(children: [
         _avatar(_email(f)),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(_email(f),
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.label)),
+          Text(_email(f), maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: AppColors.label)),
           const SizedBox(height: 2),
-          const Text('pending', style: TextStyle(fontSize: 12, color: AppColors.label3)),
+          Text('Awaiting reply', style: TextStyle(fontSize: 13, color: AppColors.label3)),
         ])),
         GestureDetector(
           onTap: () async { await SupabaseService.declineFriendRequest(f['id']); _load(); },
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
             decoration: BoxDecoration(
               color: AppColors.bg2,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Text('Cancel', style: TextStyle(fontSize: 12, color: AppColors.label2)),
+            child: Text('Cancel', style: TextStyle(fontSize: 13, color: AppColors.label2)),
           ),
         ),
       ]),
     ),
-    if (i < total - 1) const Divider(height: 1, indent: 68, endIndent: 16),
+    if (i < total - 1) Container(height: 0.5, color: AppColors.separator,
+        margin: const EdgeInsets.only(left: 68, right: 16)),
   ]);
 
   Widget _avatar(String email) => CircleAvatar(
-    radius: 20,
-    backgroundColor: AppColors.accent,
+    radius: 22,
+    backgroundColor: AppColors.label,
     child: Text(
       email.isNotEmpty ? email[0].toUpperCase() : '?',
-      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.bg),
+      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.bg),
     ),
   );
 }

@@ -1,7 +1,14 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../services/supabase_service.dart';
+import '../../tasks/screens/task_detail_screen.dart';
+import '../../tasks/screens/add_task_screen.dart';
 
+/// Apple-Calendar-style continuously scrolling month list.
+/// Past and future months stream infinitely around the current month
+/// (anchored via CustomScrollView `center`). Tap a day to see its
+/// reminders; tap a reminder to open its editing screen.
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
   @override
@@ -9,323 +16,472 @@ class CalendarScreen extends StatefulWidget {
 }
 
 class _CalendarScreenState extends State<CalendarScreen> {
-  DateTime _focused  = DateTime.now();
+  final _centerKey = const ValueKey('center-month');
+  final _ctrl = ScrollController();
+  late final DateTime _base;        // first day of the current month
   DateTime _selected = DateTime.now();
-  List<Map<String, dynamic>> _dayTasks   = [];
-  List<Map<String, dynamic>> _monthTasks = [];
-  bool _loading = false;
+  int _reloadToken = 0;             // bumped to force month grids to refetch
 
-  static const _wd = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-  static const _mn = ['January','February','March','April','May','June',
-    'July','August','September','October','November','December'];
+  static const _span = 120;         // months available each direction (~10y)
 
   @override
-  void initState() { super.initState(); _loadMonth(_focused); _loadDay(_selected); }
-
-  Future<void> _loadMonth(DateTime m) async {
-    final t = await SupabaseService.getTasksForMonth(m.year, m.month);
-    if (mounted) setState(() => _monthTasks = t);
-  }
-
-  Future<void> _loadDay(DateTime d) async {
-    if (mounted) setState(() => _loading = true);
-    final t = await SupabaseService.getTasksForDate(d);
-    if (mounted) setState(() { _dayTasks = t; _loading = false; });
-  }
-
-  void _prev() {
-    final p = DateTime(_focused.year, _focused.month - 1);
-    setState(() => _focused = p);
-    _loadMonth(p);
-  }
-
-  void _next() {
-    final n = DateTime(_focused.year, _focused.month + 1);
-    setState(() => _focused = n);
-    _loadMonth(n);
-  }
-
-  void _tap(int day) {
-    final d = DateTime(_focused.year, _focused.month, day);
-    setState(() => _selected = d);
-    _loadDay(d);
-  }
-
-  int get _days => DateTime(_focused.year, _focused.month + 1, 0).day;
-  int get _start => DateTime(_focused.year, _focused.month, 1).weekday;
-
-  bool _isToday(int d) {
+  void initState() {
+    super.initState();
     final n = DateTime.now();
-    return _focused.year == n.year && _focused.month == n.month && d == n.day;
+    _base = DateTime(n.year, n.month);
   }
-  bool _isSel(int d) =>
-      _focused.year == _selected.year && _focused.month == _selected.month && d == _selected.day;
-  bool _hasDot(int d) => _monthTasks.any((t) {
-    if (t['scheduled_time'] == null) return false;
-    final dt = DateTime.tryParse(t['scheduled_time']);
-    return dt != null && dt.year == _focused.year && dt.month == _focused.month && dt.day == d;
-  });
 
-  String get _dayLabel {
-    final n = DateTime.now();
-    if (_selected.year == n.year && _selected.month == n.month && _selected.day == n.day) {
-      return 'Today';
-    }
-    return '${_mn[_selected.month - 1]} ${_selected.day}';
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  DateTime _monthAt(int offset) => DateTime(_base.year, _base.month + offset);
+
+  void _jumpToToday() {
+    setState(() => _selected = DateTime.now());
+    _ctrl.animateTo(0,
+        duration: const Duration(milliseconds: 450), curve: Curves.easeOutCubic);
+  }
+
+  Future<void> _openDay(DateTime day) async {
+    setState(() => _selected = day);
+    await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _DaySheet(
+        day: day,
+        onChanged: () { if (mounted) setState(() => _reloadToken++); },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: Column(children: [
-          // ── Editorial header ───────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              // Brand label
-              const Text('CALENDAR',
-                style: TextStyle(
-                  fontSize: 10, fontWeight: FontWeight.w700,
-                  color: AppColors.accent, letterSpacing: 2.0,
-                )),
-              const SizedBox(height: 12),
-              // Month navigation — editorial large
-              Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                // Large month name
-                Expanded(child: Row(crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic, children: [
-                  Text(_mn[_focused.month - 1].toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 28, fontWeight: FontWeight.w900,
-                      color: AppColors.label, letterSpacing: -0.5,
-                    )),
-                  const SizedBox(width: 10),
-                  Text('${_focused.year}',
-                    style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w400,
-                      color: AppColors.label3,
-                    )),
-                ])),
-                // Nav buttons
-                Row(children: [
-                  _navBtn(Icons.chevron_left, _prev),
-                  const SizedBox(width: 8),
-                  _navBtn(Icons.chevron_right, _next),
-                ]),
-              ]),
-            ]),
-          ),
-
-          const SizedBox(height: 20),
-
-          // ── Calendar card ──────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppColors.card,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.separator, width: 0.5),
-                boxShadow: cardShadow,
-              ),
-              padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
-              child: Column(children: [
-                // Weekday labels
-                Row(children: _wd.map((d) => Expanded(
-                  child: Text(d, textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 11, color: AppColors.label3, fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                    )),
-                )).toList()),
-                const SizedBox(height: 10),
-                // Day grid
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 7, childAspectRatio: 1,
-                  ),
-                  itemCount: (_start - 1) + _days,
-                  itemBuilder: (ctx, i) {
-                    if (i < _start - 1) return const SizedBox();
-                    final d = i - (_start - 2);
-                    final today = _isToday(d);
-                    final sel   = _isSel(d);
-                    final dot   = _hasDot(d);
-                    return GestureDetector(
-                      onTap: () => _tap(d),
-                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Container(
-                          width: 34, height: 34,
-                          decoration: BoxDecoration(
-                            color: sel
-                                ? AppColors.accent
-                                : today
-                                    ? AppColors.accentLight
-                                    : Colors.transparent,
-                            shape: BoxShape.circle,
-                            border: today && !sel
-                                ? Border.all(color: AppColors.accent.withValues(alpha: 0.5), width: 1)
-                                : null,
-                          ),
-                          alignment: Alignment.center,
-                          child: Text('$d', style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: (today || sel) ? FontWeight.w700 : FontWeight.w400,
-                            color: sel
-                                ? AppColors.bg
-                                : today
-                                    ? AppColors.accent
-                                    : AppColors.label,
-                          )),
-                        ),
-                        const SizedBox(height: 2),
-                        Container(
-                          width: 4, height: 4,
-                          decoration: BoxDecoration(
-                            color: dot
-                                ? (sel ? AppColors.bg.withValues(alpha: 0.6) : AppColors.accent)
-                                : Colors.transparent,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ]),
-                    );
-                  },
-                ),
-              ]),
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // ── Day label ──────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+      body: Column(children: [
+        // ── Top bar ───────────────────────────────────────────
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 14, 16, 6),
             child: Row(children: [
-              Text(_dayLabel.toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 10, color: AppColors.label3,
-                  fontWeight: FontWeight.w700, letterSpacing: 1.5,
+              Text('Calendar',
+                style: TextStyle(
+                  fontSize: 30, fontWeight: FontWeight.w800,
+                  color: AppColors.label, letterSpacing: -1.2,
                 )),
               const Spacer(),
-              if (_dayTasks.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              GestureDetector(
+                onTap: _jumpToToday,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                   decoration: BoxDecoration(
-                    color: AppColors.accentLight,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
+                    color: AppColors.bg2,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: AppColors.separator, width: 0.8),
                   ),
-                  child: Text('${_dayTasks.length}',
-                    style: const TextStyle(
-                      fontSize: 11, color: AppColors.accent,
-                      fontWeight: FontWeight.w700,
+                  child: Text('Today',
+                    style: TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w700,
+                      color: AppColors.label,
                     )),
                 ),
+              ),
             ]),
           ),
-          const SizedBox(height: 10),
+        ),
 
-          // ── Task list ──────────────────────────────────────────
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.accent))
-                : _dayTasks.isEmpty
-                    ? Center(
-                        child: Column(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.calendar_today_outlined, size: 36,
-                              color: AppColors.label3.withValues(alpha: 0.4)),
-                          const SizedBox(height: 10),
-                          const Text('No tasks',
-                              style: TextStyle(fontSize: 14, color: AppColors.label3)),
-                        ]),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
-                        itemCount: _dayTasks.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (ctx, i) {
-                          final t = _dayTasks[i];
-                          final status = t['status'] as String? ?? 'pending';
-                          final isDone = status == 'verified';
-                          final isFailed = status == 'failed';
-                          final time = t['scheduled_time'] != null
-                              ? DateTime.parse(t['scheduled_time']).toString().substring(11, 16)
-                              : null;
-                          final statusColor = isDone
-                              ? AppColors.success
-                              : isFailed
-                                  ? AppColors.destructive
-                                  : AppColors.accent;
-                          final bgColor = isDone
-                              ? AppColors.successBg
-                              : isFailed
-                                  ? AppColors.destructiveBg
-                                  : AppColors.accentLight;
-                          return Container(
-                            decoration: BoxDecoration(
-                              color: AppColors.card,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: AppColors.separator, width: 0.5),
-                              boxShadow: cardShadow,
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                            child: Row(children: [
-                              Container(
-                                width: 7, height: 7,
-                                decoration: BoxDecoration(
-                                  color: statusColor,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(t['title'] ?? '',
-                                  style: TextStyle(
-                                    fontSize: 15, fontWeight: FontWeight.w500,
-                                    color: isDone ? AppColors.label3 : AppColors.label,
-                                    decoration: isDone ? TextDecoration.lineThrough : null,
-                                    decorationColor: AppColors.label3,
-                                  )),
-                              ),
-                              if (time != null) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: bgColor,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(time,
-                                    style: TextStyle(fontSize: 11, color: statusColor,
-                                        fontWeight: FontWeight.w600)),
-                                ),
-                              ],
-                            ]),
-                          );
-                        },
-                      ),
+        // ── Weekday header (Sun-first, Apple US) ───────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            children: const ['S','M','T','W','T','F','S']
+                .map((d) => Expanded(child: _Weekday(d)))
+                .toList(),
           ),
-        ]),
+        ),
+        Container(height: 0.5, color: AppColors.separator),
+
+        // ── Infinite month list ────────────────────────────────
+        Expanded(
+          child: CustomScrollView(
+            controller: _ctrl,
+            center: _centerKey,
+            slivers: [
+              // Past months (grows upward)
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (ctx, i) => _MonthView(
+                    month: _monthAt(-(i + 1)),
+                    selected: _selected,
+                    reloadToken: _reloadToken,
+                    onTapDay: _openDay,
+                  ),
+                  childCount: _span,
+                ),
+              ),
+              // Anchor = current month
+              SliverToBoxAdapter(
+                key: _centerKey,
+                child: _MonthView(
+                  month: _monthAt(0),
+                  selected: _selected,
+                  reloadToken: _reloadToken,
+                  onTapDay: _openDay,
+                ),
+              ),
+              // Future months
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (ctx, i) => _MonthView(
+                    month: _monthAt(i + 1),
+                    selected: _selected,
+                    reloadToken: _reloadToken,
+                    onTapDay: _openDay,
+                  ),
+                  childCount: _span,
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 130)),
+            ],
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _Weekday extends StatelessWidget {
+  final String d;
+  const _Weekday(this.d);
+  @override
+  Widget build(BuildContext context) => Text(d,
+    textAlign: TextAlign.center,
+    style: TextStyle(
+      fontSize: 13, fontWeight: FontWeight.w700,
+      color: AppColors.label3, letterSpacing: 0.5,
+    ));
+}
+
+// ── Month grid ────────────────────────────────────────────────────────────────
+
+class _MonthView extends StatefulWidget {
+  final DateTime month;            // first-of-month
+  final DateTime selected;
+  final int reloadToken;
+  final ValueChanged<DateTime> onTapDay;
+  const _MonthView({
+    required this.month, required this.selected,
+    required this.reloadToken, required this.onTapDay,
+  });
+
+  @override
+  State<_MonthView> createState() => _MonthViewState();
+}
+
+class _MonthViewState extends State<_MonthView> {
+  Set<int> _taskDays = {};
+
+  static const _mn = ['January','February','March','April','May','June',
+    'July','August','September','October','November','December'];
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  @override
+  void didUpdateWidget(covariant _MonthView old) {
+    super.didUpdateWidget(old);
+    if (old.reloadToken != widget.reloadToken) _load();
+  }
+
+  Future<void> _load() async {
+    final t = await SupabaseService.getTasksForMonth(widget.month.year, widget.month.month);
+    if (!mounted) return;
+    setState(() {
+      _taskDays = t
+          .where((e) => e['scheduled_time'] != null)
+          .map((e) => DateTime.parse(e['scheduled_time']).day)
+          .toSet();
+    });
+  }
+
+  int get _daysInMonth => DateTime(widget.month.year, widget.month.month + 1, 0).day;
+  // Sunday-first column index for the 1st of the month.
+  int get _leadBlanks => DateTime(widget.month.year, widget.month.month, 1).weekday % 7;
+
+  bool _isToday(int d) {
+    final n = DateTime.now();
+    return n.year == widget.month.year && n.month == widget.month.month && n.day == d;
+  }
+
+  bool _isSel(int d) =>
+      widget.selected.year == widget.month.year &&
+      widget.selected.month == widget.month.month &&
+      widget.selected.day == d;
+
+  @override
+  Widget build(BuildContext context) {
+    final cells = _leadBlanks + _daysInMonth;
+    final rows  = (cells / 7).ceil();
+    final isCurrentYear = widget.month.year == DateTime.now().year;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 22, 16, 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Month title — always carries the year so scrolling reads clearly
+        Padding(
+          padding: const EdgeInsets.only(left: 6, bottom: 12),
+          child: RichText(text: TextSpan(children: [
+            TextSpan(text: _mn[widget.month.month - 1],
+              style: TextStyle(
+                fontSize: 24, fontWeight: FontWeight.w800,
+                color: AppColors.label, letterSpacing: -0.8,
+              )),
+            TextSpan(text: '  ${widget.month.year}',
+              style: TextStyle(
+                fontSize: 24, fontWeight: FontWeight.w400,
+                color: isCurrentYear ? AppColors.label3 : AppColors.label2,
+                letterSpacing: -0.8,
+              )),
+          ])),
+        ),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7, childAspectRatio: 0.86,
+          ),
+          itemCount: rows * 7,
+          itemBuilder: (ctx, i) {
+            if (i < _leadBlanks) return const SizedBox();
+            final day = i - _leadBlanks + 1;
+            if (day > _daysInMonth) return const SizedBox();
+
+            final today = _isToday(day);
+            final sel   = _isSel(day);
+            final dot   = _taskDays.contains(day);
+
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => widget.onTapDay(
+                  DateTime(widget.month.year, widget.month.month, day)),
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: today ? AppColors.label : Colors.transparent,
+                    border: (sel && !today)
+                        ? Border.all(color: AppColors.label, width: 1.6)
+                        : null,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text('$day',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: (today || sel) ? FontWeight.w700 : FontWeight.w500,
+                      color: today ? AppColors.bg : AppColors.label,
+                    )),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  width: 5, height: 5,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: dot
+                        ? (today ? AppColors.bg : AppColors.label)
+                        : Colors.transparent,
+                  ),
+                ),
+              ]),
+            );
+          },
+        ),
+      ]),
+    );
+  }
+}
+
+// ── Glassy day sheet — reminders for the tapped day ───────────────────────────
+
+class _DaySheet extends StatefulWidget {
+  final DateTime day;
+  final VoidCallback onChanged;
+  const _DaySheet({required this.day, required this.onChanged});
+  @override
+  State<_DaySheet> createState() => _DaySheetState();
+}
+
+class _DaySheetState extends State<_DaySheet> {
+  List<Map<String, dynamic>> _tasks = [];
+  bool _loading = true;
+
+  static const _mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  static const _wd = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    final t = await SupabaseService.getTasksForDate(widget.day);
+    if (mounted) setState(() { _tasks = t; _loading = false; });
+  }
+
+  Future<void> _openTask(Map<String, dynamic> task) async {
+    final r = await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => TaskDetailScreen(taskId: task['id']),
+    ));
+    if (r != null) { widget.onChanged(); await _load(); }
+  }
+
+  Future<void> _addTask() async {
+    final r = await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => AddTaskScreen(initialDate: widget.day),
+    ));
+    if (r == true) { widget.onChanged(); await _load(); }
+  }
+
+  String _fmtTime(DateTime d) {
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.day;
+    final title = '${_wd[d.weekday - 1]}, ${_mn[d.month - 1]} ${d.day}';
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.glass,
+            border: Border(top: BorderSide(color: AppColors.glassBorder, width: 0.8)),
+          ),
+          child: PopScope(
+            canPop: true,
+            onPopInvokedWithResult: (didPop, _) {},
+            child: SafeArea(
+              top: false,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.7,
+                  minHeight: 240,
+                ),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  const SizedBox(height: 12),
+                  Container(width: 40, height: 5,
+                    decoration: BoxDecoration(
+                      color: AppColors.separator,
+                      borderRadius: BorderRadius.circular(3),
+                    )),
+                  const SizedBox(height: 20),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Row(children: [
+                      Expanded(child: Text(title,
+                        style: TextStyle(
+                          fontSize: 24, fontWeight: FontWeight.w800,
+                          color: AppColors.label, letterSpacing: -0.8,
+                        ))),
+                      GestureDetector(
+                        onTap: _addTask,
+                        child: Container(
+                          width: 40, height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.label, shape: BoxShape.circle),
+                          child: Icon(Icons.add_rounded, color: AppColors.bg, size: 24),
+                        ),
+                      ),
+                    ]),
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: _loading
+                        ? Padding(
+                            padding: const EdgeInsets.all(40),
+                            child: Center(child: CircularProgressIndicator(
+                                strokeWidth: 2, color: AppColors.label)),
+                          )
+                        : _tasks.isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.fromLTRB(24, 24, 24, 48),
+                                child: Text('No reminders this day.',
+                                  style: TextStyle(fontSize: 16, color: AppColors.label3)),
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                                itemCount: _tasks.length,
+                                separatorBuilder: (_, _) =>
+                                    Container(height: 0.5, color: AppColors.separator),
+                                itemBuilder: (ctx, i) {
+                                  final t = _tasks[i];
+                                  final status = t['status'] as String? ?? 'pending';
+                                  final isDone = status == 'verified';
+                                  final isFailed = status == 'failed';
+                                  final time = t['scheduled_time'] != null
+                                      ? _fmtTime(DateTime.parse(t['scheduled_time']))
+                                      : 'Anytime';
+                                  return GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => _openTask(t),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      child: Row(children: [
+                                        Container(
+                                          width: 30, height: 30,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: isDone ? AppColors.label : Colors.transparent,
+                                            border: isDone ? null
+                                                : Border.all(color: AppColors.separator, width: 1.5),
+                                          ),
+                                          child: Icon(
+                                            isDone ? Icons.check_rounded
+                                                : isFailed ? Icons.close_rounded : null,
+                                            size: 17,
+                                            color: isDone ? AppColors.bg : AppColors.label3,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                        Expanded(child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(t['title'] ?? '',
+                                              maxLines: 1, overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 18, fontWeight: FontWeight.w600,
+                                                color: isDone ? AppColors.label3 : AppColors.label,
+                                                decoration: isDone ? TextDecoration.lineThrough : null,
+                                                decorationColor: AppColors.label3,
+                                                letterSpacing: -0.3,
+                                              )),
+                                            const SizedBox(height: 3),
+                                            Text(time,
+                                              style: TextStyle(fontSize: 14, color: AppColors.label3)),
+                                          ],
+                                        )),
+                                        Icon(Icons.chevron_right_rounded,
+                                            color: AppColors.label3, size: 22),
+                                      ]),
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
-
-  Widget _navBtn(IconData icon, VoidCallback onTap) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 36, height: 36,
-      decoration: BoxDecoration(
-        color: AppColors.bg2,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.separator, width: 0.5),
-      ),
-      child: Icon(icon, color: AppColors.label2, size: 20),
-    ),
-  );
 }

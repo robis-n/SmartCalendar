@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -13,19 +14,23 @@ class _MainShellState extends State<MainShell> {
   int _tabIndex = 0;
   int _direction = 1;
 
-  static const _routes = ['/dashboard', '/calendar', '/friends', '/analytics', '/settings'];
+  // Only three primary destinations. Friends & Stats live inside Profile.
+  static const _routes = ['/dashboard', '/calendar', '/settings'];
 
   static const _items = [
-    _NavItem(Icons.home_rounded,            Icons.home_outlined,            'Home'),
-    _NavItem(Icons.calendar_month_rounded,  Icons.calendar_month_outlined,  'Calendar'),
-    _NavItem(Icons.people_rounded,          Icons.people_outline,           'Friends'),
-    _NavItem(Icons.bar_chart_rounded,       Icons.bar_chart_outlined,       'Stats'),
+    _NavItem(Icons.house_rounded,           Icons.house_outlined,           'Home'),
+    _NavItem(Icons.calendar_today_rounded,  Icons.calendar_today_outlined,  'Calendar'),
     _NavItem(Icons.person_rounded,          Icons.person_outline_rounded,   'Profile'),
   ];
 
+  // Map any path (incl. profile sub-pages) to one of the three tabs.
   int _indexFor(String path) {
-    for (int i = 0; i < _routes.length; i++) {
-      if (path.startsWith(_routes[i])) return i;
+    if (path.startsWith('/calendar')) return 1;
+    if (path.startsWith('/settings') ||
+        path.startsWith('/friends') ||
+        path.startsWith('/analytics') ||
+        path.startsWith('/subscriptions')) {
+      return 2;
     }
     return 0;
   }
@@ -54,85 +59,89 @@ class _MainShellState extends State<MainShell> {
       extendBody: true,
       backgroundColor: AppColors.bg,
       body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
+        duration: const Duration(milliseconds: 300),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
         transitionBuilder: (child, animation) {
-          final isEntering = child.key == ValueKey(routeIndex);
-          final begin = isEntering
-              ? Offset(_direction.toDouble(), 0)
-              : Offset(-_direction.toDouble(), 0);
-          return SlideTransition(
-            position: Tween<Offset>(begin: begin, end: Offset.zero)
-                .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-            child: child,
+          // Incoming child carries the *current* routeIndex key; the
+          // outgoing child still carries the previous one.
+          final entering = child.key == ValueKey(routeIndex);
+          final dx = entering ? _direction * 0.10 : -_direction * 0.10;
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(begin: Offset(dx, 0), end: Offset.zero)
+                  .animate(animation),
+              child: child,
+            ),
           );
         },
-        layoutBuilder: (current, previous) => Stack(
-          fit: StackFit.expand,
-          children: [...previous, ?current],
-        ),
+        layoutBuilder: (current, previous) =>
+            Stack(fit: StackFit.expand, children: [...previous, ?current]),
         child: KeyedSubtree(key: ValueKey(routeIndex), child: widget.child),
       ),
 
-      // ── Floating dark pill nav ──────────────────────────────────────────
+      // ── Floating glass pill nav ─────────────────────────────────────────
       bottomNavigationBar: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Container(
-          height: 68,
-          decoration: BoxDecoration(
-            color: const Color(0xFF17162A),
-            borderRadius: BorderRadius.circular(34),
-            border: Border.all(color: const Color(0xFF252440), width: 0.5),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFFD4AF7A).withValues(alpha: 0.18),
-                blurRadius: 28,
-                offset: const Offset(0, 10),
-              ),
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.40),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: List.generate(_items.length, (i) {
-              final item    = _items[i];
-              final selected = routeIndex == i;
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _onTab(context, i),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  padding: selected
-                      ? const EdgeInsets.symmetric(horizontal: 16, vertical: 10)
-                      : const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: selected ? AppColors.accent : Colors.transparent,
-                    borderRadius: BorderRadius.circular(24),
+        padding: const EdgeInsets.fromLTRB(48, 0, 48, 26),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(36),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: Container(
+              height: 66,
+              decoration: BoxDecoration(
+                color: AppColors.glass,
+                borderRadius: BorderRadius.circular(36),
+                border: Border.all(color: AppColors.glassBorder, width: 0.8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: AppColors.isDark ? 0.45 : 0.10),
+                    blurRadius: 30,
+                    offset: const Offset(0, 12),
                   ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(
-                      selected ? item.activeIcon : item.icon,
-                      color: selected ? Colors.white : Colors.white.withValues(alpha: 0.45),
-                      size: 22,
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: List.generate(_items.length, (i) {
+                  final item     = _items[i];
+                  final selected = routeIndex == i;
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _onTab(context, i),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOutCubic,
+                      padding: selected
+                          ? const EdgeInsets.symmetric(horizontal: 18, vertical: 11)
+                          : const EdgeInsets.all(11),
+                      decoration: BoxDecoration(
+                        color: selected ? AppColors.label : Colors.transparent,
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(
+                          selected ? item.activeIcon : item.icon,
+                          color: selected ? AppColors.bg : AppColors.label3,
+                          size: 23,
+                        ),
+                        if (selected) ...[
+                          const SizedBox(width: 8),
+                          Text(item.label,
+                              style: TextStyle(
+                                color: AppColors.bg,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.2,
+                              )),
+                        ],
+                      ]),
                     ),
-                    if (selected) ...[
-                      const SizedBox(width: 6),
-                      Text(item.label,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.2,
-                          )),
-                    ],
-                  ]),
-                ),
-              );
-            }),
+                  );
+                }),
+              ),
+            ),
           ),
         ),
       ),

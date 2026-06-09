@@ -53,14 +53,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               Text(tier.toUpperCase(), style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 16)),
               if (recommended) ...[
                 const SizedBox(width: 8),
-                Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)), child: const Text('BEST', style: TextStyle(color: AppColors.bg, fontSize: 10, fontWeight: FontWeight.bold))),
+                Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)), child: Text('BEST', style: TextStyle(color: AppColors.bg, fontSize: 10, fontWeight: FontWeight.bold))),
               ],
               const Spacer(),
               if (isCurrent) Icon(Icons.check_circle, color: color),
             ]),
             const SizedBox(height: 4),
             Text(price, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-            Text(period, style: const TextStyle(color: AppColors.label3)),
+            Text(period, style: TextStyle(color: AppColors.label3)),
             const SizedBox(height: 16),
             ...features.map((f) => Padding(
               padding: const EdgeInsets.only(bottom: 6),
@@ -121,10 +121,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFFE8C890), Color(0xFFB08040)]),
+                  color: AppColors.label,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Row(children: [
+                child: Row(children: [
                   Icon(Icons.star_rounded, color: AppColors.bg),
                   SizedBox(width: 12),
                   Expanded(child: Column(

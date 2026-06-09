@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/theme_provider.dart';
 import 'core/router/app_router.dart';
 
 class AccountabilityApp extends ConsumerWidget {
@@ -8,14 +9,24 @@ class AccountabilityApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(appRouterProvider);
+    final router    = ref.watch(appRouterProvider);
+    final themeMode = ref.watch(themeModeProvider);
+
     return MaterialApp.router(
       title: 'SmartCalendar',
-      theme: AppTheme.dark,
+      theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.dark,
+      themeMode: themeMode,
       routerConfig: router,
       debugShowCheckedModeBanner: false,
+      // The `builder` runs as a descendant of MaterialApp's resolved Theme,
+      // so this reflects the brightness actually applied (light/dark/system).
+      // Sync the global ink/paper flag here, before any screen builds, so the
+      // direct AppColors.* getters resolve correctly every frame.
+      builder: (context, child) {
+        AppColors.dark = Theme.of(context).brightness == Brightness.dark;
+        return child ?? const SizedBox.shrink();
+      },
     );
   }
 }

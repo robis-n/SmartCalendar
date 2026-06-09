@@ -26,7 +26,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _refreshClock();                                   // set immediately, no setState needed in initState
+    _refreshClock();
     _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(_refreshClock);
     });
@@ -99,90 +99,115 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (r != null && mounted) _load();
   }
 
-  // ── Greeting copy ──────────────────────────────────────
+  // ── Copy ───────────────────────────────────────────────
   String get _greeting {
     final h = DateTime.now().hour;
-    if (h < 5)  return 'Night\nowl.';
-    if (h < 12) return 'Good\nmorning.';
-    if (h < 17) return 'Good\nafternoon.';
-    if (h < 21) return 'Good\nevening.';
-    return 'Late\nnight.';
+    if (h < 5)  return 'Still up?';
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    if (h < 21) return 'Good evening';
+    return 'Winding down';
   }
 
-  // ── Date label ─────────────────────────────────────────
   String get _dateLabel {
     final n = DateTime.now();
-    const wd = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const wd = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    const mo = ['January','February','March','April','May','June',
+      'July','August','September','October','November','December'];
     return '${wd[n.weekday - 1]}, ${mo[n.month - 1]} ${n.day}';
   }
 
   // ── Build ──────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final isAdmin = _tier == AppConstants.tierAdmin;
-    final done    = _tasks.where((t) => t['status'] == 'verified').length;
-    final failed  = _tasks.where((t) => t['status'] == 'failed').length;
-    final pending = _tasks.where((t) => t['status'] == 'pending').length;
-    final total   = _tasks.length;
-    final progress = total == 0 ? 0.0 : done / total;
+    final done  = _tasks.where((t) => t['status'] == 'verified').length;
+    final total = _tasks.length;
+    final left  = total - done;          // everything not yet completed
 
     return Scaffold(
       backgroundColor: AppColors.bg,
-      // ── FAB above the floating nav bar ──────────────────
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 92),
-        child: _GoldFAB(onTap: _openAddTask),
+        child: _InkFAB(onTap: _openAddTask),
       ),
       body: RefreshIndicator(
-        color: AppColors.accent,
+        color: AppColors.label,
         backgroundColor: AppColors.card,
         onRefresh: _load,
         child: _loading
-            ? const Center(child: CircularProgressIndicator(color: AppColors.accent, strokeWidth: 2))
+            ? Center(child: CircularProgressIndicator(color: AppColors.label, strokeWidth: 2))
             : CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
-
-                  // ── Hero editorial header ──────────────────────
+                  // ── Hero — centered & personal ──────────────────
                   SliverToBoxAdapter(
-                    child: _Header(
-                      greeting: _greeting,
-                      clockTime: _clockTime,
-                      dateLabel: _dateLabel,
-                      isAdmin: isAdmin,
-                      done: done,
-                      total: total,
-                      progress: progress,
+                    child: SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 28, 24, 8),
+                        child: Column(children: [
+                          Text(_clockTime,
+                            style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700,
+                              color: AppColors.label3, letterSpacing: 0.5,
+                            )),
+                          const SizedBox(height: 10),
+                          Text(_greeting,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 40, fontWeight: FontWeight.w800,
+                              color: AppColors.label, letterSpacing: -1.5,
+                              height: 1.05,
+                            )),
+                          const SizedBox(height: 10),
+                          Text(_dateLabel.toUpperCase(),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w700,
+                              color: AppColors.label3, letterSpacing: 2.0,
+                            )),
+                        ]),
+                      ),
                     ),
                   ),
 
-                  // ── Stats row — editorial numbers ──────────────
+                  // ── Three big numbers: TOTAL / LEFT / DONE ──────
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: _StatsBar(
-                        total: total, done: done, pending: pending, failed: failed),
+                      padding: const EdgeInsets.fromLTRB(20, 28, 20, 8),
+                      child: Row(children: [
+                        Expanded(child: _BigStat(value: total, label: 'TODAY')),
+                        _statDivider(),
+                        Expanded(child: _BigStat(value: left,  label: 'LEFT')),
+                        _statDivider(),
+                        Expanded(child: _BigStat(value: done,  label: 'DONE')),
+                      ]),
                     ),
                   ),
 
-                  // ── Empty state ───────────────────────────────
+                  // ── Task list / empty ───────────────────────────
                   if (_tasks.isEmpty)
                     SliverFillRemaining(
+                      hasScrollBody: false,
                       child: _EmptyState(onAdd: _openAddTask),
                     )
                   else ...[
-                    // Section rule
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-                        child: _SectionRule(label: 'TODAY', right: '$done / $total'),
+                        padding: const EdgeInsets.fromLTRB(24, 28, 24, 4),
+                        child: Row(children: [
+                          Text('TODAY',
+                            style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w800,
+                              color: AppColors.label3, letterSpacing: 2,
+                            )),
+                          const SizedBox(width: 12),
+                          Expanded(child: Container(height: 0.5, color: AppColors.separator)),
+                        ]),
                       ),
                     ),
-
-                    // Task rows — editorial numbered list
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 120),
+                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 130),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
                           (ctx, i) => _TaskRow(
@@ -201,225 +226,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+
+  Widget _statDivider() => Container(width: 0.5, height: 54, color: AppColors.separator);
 }
 
-// ── Editorial hero header ─────────────────────────────────────────────────────
+// ── Big stat number ───────────────────────────────────────────────────────────
 
-class _Header extends StatelessWidget {
-  final String greeting, clockTime, dateLabel;
-  final bool isAdmin;
-  final int done, total;
-  final double progress;
-
-  const _Header({
-    required this.greeting, required this.clockTime, required this.dateLabel,
-    required this.isAdmin, required this.done, required this.total,
-    required this.progress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: AppColors.bg,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
-          child: Stack(clipBehavior: Clip.none, children: [
-
-            // ── Giant watermark % in background ─────────────
-            if (total > 0)
-              Positioned(
-                right: -16,
-                top: -24,
-                child: Text(
-                  '${(progress * 100).round()}',
-                  style: TextStyle(
-                    fontSize: 168,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.accent.withValues(alpha: 0.05),
-                    letterSpacing: -10,
-                    height: 1,
-                  ),
-                ),
-              ),
-
-            // ── Foreground ────────────────────────────────────
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-
-              // Metadata bar
-              Row(children: [
-                // Live clock
-                Text(clockTime,
-                  style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w700,
-                    color: AppColors.accent, letterSpacing: 0.5,
-                  )),
-                const SizedBox(width: 8),
-                Container(width: 1, height: 12, color: AppColors.separator),
-                const SizedBox(width: 8),
-                Text(dateLabel,
-                  style: const TextStyle(
-                    fontSize: 11, color: AppColors.label3,
-                    fontWeight: FontWeight.w500,
-                  )),
-                const Spacer(),
-                if (isAdmin)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.accentLight,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
-                    ),
-                    child: const Text('CEO',
-                      style: TextStyle(fontSize: 9, color: AppColors.accent,
-                          fontWeight: FontWeight.w800, letterSpacing: 1.5)),
-                  ),
-              ]),
-
-              const SizedBox(height: 30),
-
-              // Bold editorial greeting — the visual anchor of the screen
-              Text(greeting,
-                style: const TextStyle(
-                  fontSize: 46, fontWeight: FontWeight.w900,
-                  color: AppColors.label, height: 1.0,
-                  letterSpacing: -2.5,
-                )),
-
-              const SizedBox(height: 8),
-
-              // Accent underline — editorial typographic accent
-              Container(width: 28, height: 2,
-                decoration: BoxDecoration(
-                  color: AppColors.accent,
-                  borderRadius: BorderRadius.circular(1),
-                )),
-
-              const SizedBox(height: 10),
-
-              Text(
-                total == 0
-                    ? 'Nothing scheduled — enjoy the day.'
-                    : '$done of $total tasks complete today',
-                style: const TextStyle(fontSize: 13, color: AppColors.label3, height: 1.4),
-              ),
-
-              if (total > 0) ...[
-                const SizedBox(height: 20),
-                // Thin progress bar with % label
-                Row(children: [
-                  Expanded(child: ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 2,
-                      backgroundColor: AppColors.separator,
-                      valueColor: const AlwaysStoppedAnimation(AppColors.accent),
-                    ),
-                  )),
-                  const SizedBox(width: 14),
-                  Text('${(progress * 100).round()}%',
-                    style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w800,
-                      color: AppColors.accent, letterSpacing: -0.3,
-                    )),
-                ]),
-              ],
-            ]),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Stats bar — editorial numbers ─────────────────────────────────────────────
-
-class _StatsBar extends StatelessWidget {
-  final int total, done, pending, failed;
-  const _StatsBar({required this.total, required this.done,
-      required this.pending, required this.failed});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 14),
-    decoration: BoxDecoration(
-      border: Border.symmetric(
-        horizontal: BorderSide(color: AppColors.separator, width: 0.5),
-      ),
-    ),
-    child: Row(children: [
-      _Num(value: total, label: 'TOTAL', color: AppColors.label2),
-      _divider(),
-      _Num(value: done, label: 'DONE', color: AppColors.success),
-      _divider(),
-      _Num(value: pending, label: 'PENDING', color: AppColors.warning),
-      _divider(),
-      _Num(value: failed, label: 'FAILED', color: AppColors.destructive),
-    ]),
-  );
-
-  Widget _divider() => Container(
-    width: 0.5, height: 28,
-    margin: const EdgeInsets.symmetric(horizontal: 2),
-    color: AppColors.separator,
-  );
-}
-
-class _Num extends StatelessWidget {
+class _BigStat extends StatelessWidget {
   final int value;
   final String label;
-  final Color color;
-  const _Num({required this.value, required this.label, required this.color});
+  const _BigStat({required this.value, required this.label});
 
   @override
-  Widget build(BuildContext context) => Expanded(
-    child: Column(children: [
-      Text('$value',
-        style: TextStyle(
-          fontSize: 24, fontWeight: FontWeight.w900,
-          color: color, letterSpacing: -0.5, height: 1,
-        )),
-      const SizedBox(height: 2),
-      Text(label,
-        style: const TextStyle(
-          fontSize: 8, fontWeight: FontWeight.w700,
-          color: AppColors.label3, letterSpacing: 1.2,
-        )),
-    ]),
-  );
-}
-
-// ── Section rule — editorial divider with text ────────────────────────────────
-
-class _SectionRule extends StatelessWidget {
-  final String label;
-  final String? right;
-  const _SectionRule({required this.label, this.right});
-
-  @override
-  Widget build(BuildContext context) => Row(children: [
-    Text(label,
-      style: const TextStyle(
-        fontSize: 9, fontWeight: FontWeight.w700,
-        color: AppColors.label3, letterSpacing: 2,
+  Widget build(BuildContext context) => Column(children: [
+    Text('$value',
+      style: TextStyle(
+        fontSize: 56, fontWeight: FontWeight.w800,
+        color: AppColors.label, letterSpacing: -3, height: 1,
       )),
-    const SizedBox(width: 12),
-    Expanded(child: Container(height: 0.5, color: AppColors.separator)),
-    if (right != null) ...[
-      const SizedBox(width: 12),
-      Text(right!,
-        style: const TextStyle(
-          fontSize: 9, color: AppColors.label3,
-          fontWeight: FontWeight.w600,
-        )),
-    ],
+    const SizedBox(height: 6),
+    Text(label,
+      style: TextStyle(
+        fontSize: 11, fontWeight: FontWeight.w800,
+        color: AppColors.label3, letterSpacing: 1.8,
+      )),
   ]);
 }
 
-// ── Task row — editorial numbered row ─────────────────────────────────────────
+// ── Task row — big, clean, monochrome ─────────────────────────────────────────
 
 class _TaskRow extends StatelessWidget {
   final Map<String, dynamic> task;
@@ -432,7 +266,6 @@ class _TaskRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status   = task['status'] as String? ?? 'pending';
-    final priority = task['priority'] as String? ?? 'low';
     final isDone   = status == 'verified';
     final isFailed = status == 'failed';
     final time     = task['scheduled_time'] != null
@@ -444,109 +277,64 @@ class _TaskRow extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 15),
+          padding: const EdgeInsets.symmetric(vertical: 18),
           child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
 
-            // ── Index number (editorial gold) ──────────────
-            SizedBox(
-              width: 26,
-              child: Text(
-                (index + 1).toString().padLeft(2, '0'),
-                style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w700,
-                  color: isDone ? AppColors.separator : AppColors.accent,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-
-            // ── Task title + time ──────────────────────────
+            // Title + time
             Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(task['title'] ?? '',
                   style: TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w600,
+                    fontSize: 20, fontWeight: FontWeight.w600,
                     color: isDone ? AppColors.label3 : AppColors.label,
                     decoration: isDone ? TextDecoration.lineThrough : null,
                     decorationColor: AppColors.label3,
-                    letterSpacing: -0.3,
+                    letterSpacing: -0.4,
                   ),
                   maxLines: 1, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 3),
+                const SizedBox(height: 5),
                 Text(
-                  isDone ? 'Completed ✓'
-                      : isFailed ? 'Failed'
-                      : time ?? 'No time set',
+                  isDone ? 'Completed'
+                      : isFailed ? 'Missed'
+                      : time ?? 'Anytime',
                   style: TextStyle(
-                    fontSize: 11,
-                    color: isDone ? AppColors.success
-                        : isFailed ? AppColors.destructive
-                        : AppColors.label3,
-                    fontWeight: isDone ? FontWeight.w600 : FontWeight.w400,
+                    fontSize: 14,
+                    color: AppColors.label3,
+                    fontWeight: FontWeight.w500,
+                    decoration: isFailed ? TextDecoration.lineThrough : null,
+                    decorationColor: AppColors.label3,
                   ),
                 ),
               ],
             )),
 
-            // ── Priority badge ────────────────────────────
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: isDone ? AppColors.successBg
-                    : isFailed ? AppColors.destructiveBg
-                    : AppColors.priorityBg(priority),
-                borderRadius: BorderRadius.circular(5),
-              ),
-              child: Text(
-                isDone ? 'DONE'
-                    : isFailed ? 'FAIL'
-                    : priority.toUpperCase().substring(0, priority.length.clamp(0, 3)),
-                style: TextStyle(
-                  fontSize: 9, fontWeight: FontWeight.w800,
-                  color: isDone ? AppColors.success
-                      : isFailed ? AppColors.destructive
-                      : AppColors.priorityColor(priority),
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ),
-
             const SizedBox(width: 14),
 
-            // ── Verify circle ─────────────────────────────
+            // Check / verify control — filled when done, ring otherwise
             GestureDetector(
               onTap: isDone || isFailed ? null : onCheck,
               behavior: HitTestBehavior.opaque,
               child: Container(
-                width: 28, height: 28,
+                width: 34, height: 34,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: isDone
-                      ? AppColors.success.withValues(alpha: 0.12)
-                      : Colors.transparent,
+                  color: isDone ? AppColors.label : Colors.transparent,
                   border: isDone
                       ? null
-                      : Border.all(
-                          color: isFailed ? AppColors.destructive.withValues(alpha: 0.3)
-                              : AppColors.separator,
-                          width: 1.5,
-                        ),
+                      : Border.all(color: AppColors.separator, width: 1.6),
                 ),
                 child: Icon(
                   isDone ? Icons.check_rounded
                       : isFailed ? Icons.close_rounded
                       : null,
-                  color: isDone ? AppColors.success
-                      : AppColors.destructive,
-                  size: 16,
+                  color: isDone ? AppColors.bg : AppColors.label3,
+                  size: 19,
                 ),
               ),
             ),
           ]),
         ),
-        // Bottom divider
         Container(height: 0.5, color: AppColors.separator),
       ]),
     );
@@ -567,77 +355,50 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Center(
     child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding: const EdgeInsets.fromLTRB(32, 40, 32, 120),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        // Large editorial zero
-        Text('00',
-          style: TextStyle(
-            fontSize: 96, fontWeight: FontWeight.w900,
-            color: AppColors.accent.withValues(alpha: 0.08),
-            letterSpacing: -6, height: 1,
-          )),
-        const SizedBox(height: 4),
-        const Text('Clear schedule',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
-              color: AppColors.label, letterSpacing: -0.5)),
-        const SizedBox(height: 6),
-        const Text('Nothing due today.\nAdd a task to get started.',
+        Text('Nothing today',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 14, color: AppColors.label3, height: 1.5)),
-        const SizedBox(height: 32),
-        GestureDetector(
-          onTap: onAdd,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFE8C890), Color(0xFFB08040)],
-              ),
-              borderRadius: BorderRadius.circular(30),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.accent.withValues(alpha: 0.35),
-                  blurRadius: 18, offset: const Offset(0, 7),
-                ),
-              ],
-            ),
-            child: const Text('+ New task',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
-                  color: AppColors.bg, letterSpacing: 0.5)),
-          ),
+          style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800,
+              color: AppColors.label, letterSpacing: -1)),
+        const SizedBox(height: 10),
+        Text('A clear schedule.\nAdd something to stay on track.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 16, color: AppColors.label3, height: 1.5)),
+        const SizedBox(height: 28),
+        FilledButton(
+          onPressed: onAdd,
+          style: FilledButton.styleFrom(minimumSize: const Size(200, 54)),
+          child: const Text('New task'),
         ),
       ]),
     ),
   );
 }
 
-// ── Gold FAB ──────────────────────────────────────────────────────────────────
+// ── Ink FAB ───────────────────────────────────────────────────────────────────
 
-class _GoldFAB extends StatelessWidget {
+class _InkFAB extends StatelessWidget {
   final VoidCallback onTap;
-  const _GoldFAB({required this.onTap});
+  const _InkFAB({required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Container(
-      width: 56, height: 56,
+      width: 60, height: 60,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFE8C890), Color(0xFFB08040)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),   // square-ish, not a circle — editorial
+        color: AppColors.label,
+        shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFD4AF7A).withValues(alpha: 0.50),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: AppColors.isDark ? 0.5 : 0.18),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: const Icon(Icons.add, color: AppColors.bg, size: 26),
+      child: Icon(Icons.add_rounded, color: AppColors.bg, size: 30),
     ),
   );
 }

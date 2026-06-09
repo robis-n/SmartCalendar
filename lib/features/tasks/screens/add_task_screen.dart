@@ -5,7 +5,8 @@ import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 
 class AddTaskScreen extends StatefulWidget {
-  const AddTaskScreen({super.key});
+  final DateTime? initialDate;
+  const AddTaskScreen({super.key, this.initialDate});
   @override
   State<AddTaskScreen> createState() => _AddTaskScreenState();
 }
@@ -13,9 +14,18 @@ class AddTaskScreen extends StatefulWidget {
 class _AddTaskScreenState extends State<AddTaskScreen> {
   final _title = TextEditingController();
   final _desc  = TextEditingController();
-  DateTime _deadline = DateTime.now().add(const Duration(hours: 1));
+  late DateTime _deadline;
   String   _priority = 'medium';
   bool     _saving   = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialDate;
+    _deadline = d != null
+        ? DateTime(d.year, d.month, d.day, 9, 0)
+        : DateTime.now().add(const Duration(hours: 1));
+  }
 
   @override
   void dispose() { _title.dispose(); _desc.dispose(); super.dispose(); }
@@ -24,14 +34,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     final d = await showDatePicker(
       context: context,
       initialDate: _deadline,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.dark(primary: AppColors.accent),
-        ),
-        child: child!,
-      ),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(DateTime.now().year + 5, 12, 31),
     );
     if (d != null && mounted) {
       setState(() => _deadline = DateTime(d.year, d.month, d.day, _deadline.hour, _deadline.minute));
@@ -42,12 +46,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     final t = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(_deadline),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.dark(primary: AppColors.accent),
-        ),
-        child: child!,
-      ),
     );
     if (t != null && mounted) {
       setState(() => _deadline = DateTime(_deadline.year, _deadline.month, _deadline.day, t.hour, t.minute));
@@ -86,7 +84,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     final now = _deadline, today = DateTime.now();
     if (now.year == today.year && now.month == today.month && now.day == today.day) return 'Today';
     const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return '${now.day} ${m[now.month - 1]}';
+    return '${now.day} ${m[now.month - 1]} ${now.year}';
   }
 
   String get _timeLabel {
@@ -102,29 +100,30 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.bg,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: AppColors.label2),
+          icon: Icon(Icons.close_rounded, color: AppColors.label2),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('New Task'),
+        title: const Text('New task'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: _saving
-                ? const SizedBox(width: 20, height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent))
+                ? Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: SizedBox(width: 20, height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.label)),
+                  )
                 : GestureDetector(
                     onTap: _save,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFE8C890), Color(0xFFB08040)],
-                        ),
-                        borderRadius: BorderRadius.circular(20),
+                        color: AppColors.label,
+                        borderRadius: BorderRadius.circular(22),
                       ),
-                      child: const Text('Save',
+                      child: Text('Save',
                           style: TextStyle(color: AppColors.bg, fontWeight: FontWeight.w700,
-                              fontSize: 14)),
+                              fontSize: 15)),
                     ),
                   ),
           ),
@@ -137,7 +136,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           Container(
             decoration: BoxDecoration(
               color: AppColors.card,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(18),
               boxShadow: cardShadow,
             ),
             child: Column(children: [
@@ -145,15 +144,15 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                 controller: _title,
                 autofocus: true,
                 textCapitalization: TextCapitalization.sentences,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700,
-                    color: AppColors.label, letterSpacing: -0.3),
-                decoration: const InputDecoration(
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700,
+                    color: AppColors.label, letterSpacing: -0.4),
+                decoration: InputDecoration(
                   hintText: 'What do you need to do?',
-                  hintStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w500,
-                      color: AppColors.label3, letterSpacing: -0.3),
+                  hintStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w500,
+                      color: AppColors.label3, letterSpacing: -0.4),
                   border: InputBorder.none, enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
-                  contentPadding: EdgeInsets.fromLTRB(18, 18, 18, 10),
+                  contentPadding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
                 ),
               ),
               const Divider(height: 1, indent: 18, endIndent: 18),
@@ -161,22 +160,22 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                 controller: _desc,
                 textCapitalization: TextCapitalization.sentences,
                 maxLines: null, minLines: 2,
-                style: const TextStyle(fontSize: 15, color: AppColors.label2),
-                decoration: const InputDecoration(
+                style: TextStyle(fontSize: 16, color: AppColors.label2),
+                decoration: InputDecoration(
                   hintText: 'Add notes…',
-                  hintStyle: TextStyle(color: AppColors.label3, fontSize: 15),
+                  hintStyle: TextStyle(color: AppColors.label3, fontSize: 16),
                   border: InputBorder.none, enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
-                  contentPadding: EdgeInsets.fromLTRB(18, 10, 18, 18),
+                  contentPadding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
                 ),
               ),
             ]),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
 
           // Schedule
           _sectionLabel('SCHEDULE'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Row(children: [
             Expanded(child: _chipButton(
               icon: Icons.calendar_today_outlined,
@@ -188,41 +187,35 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
               label: _timeLabel, onTap: _pickTime,
             )),
           ]),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
 
-          // Priority
+          // Priority — monochrome weight
           _sectionLabel('PRIORITY'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Row(children: [
-            for (final p in [
-              ('low',    '🟢', 'Low',    AppColors.success,     AppColors.successBg),
-              ('medium', '🟡', 'Medium', AppColors.warning,     AppColors.warningBg),
-              ('high',   '🔴', 'High',   AppColors.destructive, AppColors.destructiveBg),
-            ]) ...[
-              if (p.$1 != 'low') const SizedBox(width: 8),
+            for (final p in ['low', 'medium', 'high']) ...[
+              if (p != 'low') const SizedBox(width: 8),
               Expanded(
                 child: GestureDetector(
-                  onTap: () => setState(() => _priority = p.$1),
+                  onTap: () => setState(() => _priority = p),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 180),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     decoration: BoxDecoration(
-                      color: _priority == p.$1 ? p.$4.withValues(alpha: 0.15) : AppColors.card,
-                      borderRadius: BorderRadius.circular(12),
+                      color: _priority == p ? AppColors.label : AppColors.card,
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: _priority == p.$1 ? p.$4 : AppColors.separator,
-                        width: _priority == p.$1 ? 1.5 : 1,
+                        color: _priority == p ? AppColors.label : AppColors.separator,
+                        width: _priority == p ? 1.5 : 1,
                       ),
-                      boxShadow: _priority == p.$1 ? cardShadow : null,
                     ),
-                    child: Column(children: [
-                      Text(p.$2, style: const TextStyle(fontSize: 18)),
-                      const SizedBox(height: 2),
-                      Text(p.$3, style: TextStyle(
-                        fontSize: 12, fontWeight: FontWeight.w700,
-                        color: _priority == p.$1 ? p.$4 : AppColors.label3,
-                      )),
-                    ]),
+                    child: Center(
+                      child: Text(p[0].toUpperCase() + p.substring(1),
+                        style: TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w700,
+                          color: _priority == p ? AppColors.bg : AppColors.label3,
+                        )),
+                    ),
                   ),
                 ),
               ),
@@ -234,25 +227,26 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   }
 
   Widget _sectionLabel(String t) => Text(t,
-      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
-          color: AppColors.label3, letterSpacing: 0.8));
+      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800,
+          color: AppColors.label3, letterSpacing: 1.5));
 
   Widget _chipButton({required IconData icon, required String label, required VoidCallback onTap}) =>
       GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
           decoration: BoxDecoration(
             color: AppColors.card,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(color: AppColors.separator),
             boxShadow: cardShadow,
           ),
           child: Row(children: [
-            Icon(icon, size: 16, color: AppColors.accent),
+            Icon(icon, size: 17, color: AppColors.label),
             const SizedBox(width: 8),
-            Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
-                color: AppColors.label2)),
+            Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
+                color: AppColors.label2))),
           ]),
         ),
       );

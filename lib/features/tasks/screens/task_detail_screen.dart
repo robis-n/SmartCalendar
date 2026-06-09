@@ -36,7 +36,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           decoration: const InputDecoration(border: InputBorder.none)),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true),
+          style: FilledButton.styleFrom(minimumSize: const Size(80, 44)),
+          child: const Text('Save')),
       ],
     ));
     if (ok != true || ctrl.text.trim().isEmpty) return;
@@ -53,7 +55,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           decoration: const InputDecoration(border: InputBorder.none)),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true),
+          style: FilledButton.styleFrom(minimumSize: const Size(80, 44)),
+          child: const Text('Save')),
       ],
     ));
     if (ok != true) return;
@@ -66,8 +70,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         ? DateTime.parse(_task!['scheduled_time'])
         : DateTime.now().add(const Duration(hours: 1));
     final d = await showDatePicker(context: context, initialDate: cur,
-        firstDate: DateTime.now().subtract(const Duration(days: 1)),
-        lastDate: DateTime.now().add(const Duration(days: 365)));
+        firstDate: DateTime(2000),
+        lastDate: DateTime(DateTime.now().year + 5, 12, 31));
     if (d == null || !mounted) return;
     final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(cur));
     if (t == null || !mounted) return;
@@ -85,7 +89,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
         TextButton(onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete', style: TextStyle(color: AppColors.destructive))),
+            child: Text('Delete', style: TextStyle(color: AppColors.label, fontWeight: FontWeight.w700))),
       ],
     ));
     if (ok != true) return;
@@ -123,12 +127,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
   }
 
-  Color _priColor(String p) => switch (p) {
-        'high'   => AppColors.destructive,
-        'medium' => AppColors.warning,
-        _        => AppColors.success,
-      };
-
   // ── Build ──────────────────────────────────────────────
 
   @override
@@ -136,7 +134,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: _loading
-          ? const Center(child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.accent))
+          ? Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.label))
           : _task == null
               ? _notFound()
               : _body(),
@@ -146,7 +144,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   Widget _notFound() => SafeArea(
     child: Column(children: [
       _topBar(null),
-      const Expanded(
+      Expanded(
         child: Center(
           child: Text('Not found', style: TextStyle(color: AppColors.label3, fontSize: 16)),
         ),
@@ -155,18 +153,18 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   );
 
   Widget _topBar(Map<String, dynamic>? t) => Padding(
-    padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+    padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
     child: Row(children: [
       GestureDetector(
         onTap: () => Navigator.of(context).pop(),
         child: Container(
-          width: 38, height: 38,
+          width: 40, height: 40,
           decoration: BoxDecoration(
-            color: AppColors.card,
+            color: AppColors.bg2,
             shape: BoxShape.circle,
-            boxShadow: cardShadow,
+            border: Border.all(color: AppColors.separator, width: 0.8),
           ),
-          child: const Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: AppColors.label),
+          child: Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: AppColors.label),
         ),
       ),
       const Spacer(),
@@ -174,13 +172,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         GestureDetector(
           onTap: _delete,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
             decoration: BoxDecoration(
-              color: AppColors.destructiveBg,
-              borderRadius: BorderRadius.circular(20),
+              color: AppColors.bg2,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppColors.separator, width: 0.8),
             ),
-            child: const Text('Delete',
-              style: TextStyle(fontSize: 13, color: AppColors.destructive, fontWeight: FontWeight.w600)),
+            child: Text('Delete',
+              style: TextStyle(fontSize: 14, color: AppColors.label, fontWeight: FontWeight.w600)),
           ),
         ),
     ]),
@@ -193,11 +192,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     final isDone   = status == 'verified' || status == 'failed';
     final sched    = t['scheduled_time'] != null ? DateTime.parse(t['scheduled_time']) : null;
 
-    final (statusLabel, statusColor, statusBg) = switch (status) {
-      'verified'    => ('Completed', AppColors.success,     AppColors.successBg),
-      'failed'      => ('Failed',    AppColors.destructive, AppColors.destructiveBg),
-      'in_progress' => ('Active',    AppColors.accent,      AppColors.accentLight),
-      _             => ('Pending',   AppColors.label3,      AppColors.bg2),
+    final statusLabel = switch (status) {
+      'verified'    => 'Completed',
+      'failed'      => 'Missed',
+      'in_progress' => 'Active',
+      _             => 'To-do',
     };
 
     return SafeArea(
@@ -206,7 +205,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         _topBar(t),
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 130),
             children: [
               // ── Title + Status ─────────────────────────
               Container(
@@ -215,32 +214,33 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: cardShadow,
                 ),
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(22),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                       decoration: BoxDecoration(
-                        color: statusBg,
+                        color: AppColors.bg2,
                         borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.separator, width: 0.8),
                       ),
                       child: Text(statusLabel,
-                        style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.w600)),
+                        style: TextStyle(fontSize: 13, color: AppColors.label, fontWeight: FontWeight.w600)),
                     ),
                     const Spacer(),
                     if (!isDone)
                       GestureDetector(
                         onTap: _editTitle,
-                        child: const Icon(Icons.edit_outlined, size: 18, color: AppColors.label3),
+                        child: Icon(Icons.edit_outlined, size: 20, color: AppColors.label3),
                       ),
                   ]),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   GestureDetector(
                     onTap: isDone ? null : _editTitle,
                     child: Text(t['title'] ?? '',
-                      style: const TextStyle(
-                        fontSize: 22, fontWeight: FontWeight.w700,
-                        color: AppColors.label, letterSpacing: -0.3,
+                      style: TextStyle(
+                        fontSize: 26, fontWeight: FontWeight.w700,
+                        color: AppColors.label, letterSpacing: -0.5,
                       )),
                   ),
                 ]),
@@ -250,8 +250,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               // ── Schedule ──────────────────────────────
               _detailCard(
                 icon: Icons.access_time_rounded,
-                iconColor: AppColors.accent,
-                iconBg: AppColors.accentLight,
                 label: 'Scheduled',
                 value: sched != null ? '${_fmtDate(sched)}, ${_fmtTime(sched)}' : 'No date set',
                 onTap: isDone ? null : _reschedule,
@@ -266,32 +264,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               Container(
                 decoration: BoxDecoration(
                   color: AppColors.card,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                   boxShadow: cardShadow,
                 ),
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(18),
                 child: Row(children: [
-                  Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      color: AppColors.warningBg,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.flag_rounded, size: 18, color: AppColors.warning),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text('Priority', style: TextStyle(fontSize: 14, color: AppColors.label2)),
+                  Icon(Icons.flag_outlined, size: 22, color: AppColors.label),
+                  const SizedBox(width: 14),
+                  Text('Priority', style: TextStyle(fontSize: 16, color: AppColors.label2)),
                   const Spacer(),
                   if (isDone)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                       decoration: BoxDecoration(
-                        color: _priColor(priority).withValues(alpha: 0.12),
+                        color: AppColors.bg2,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
                         priority[0].toUpperCase() + priority.substring(1),
-                        style: TextStyle(fontSize: 13, color: _priColor(priority), fontWeight: FontWeight.w600),
+                        style: TextStyle(fontSize: 14, color: AppColors.label, fontWeight: FontWeight.w600),
                       ),
                     )
                   else
@@ -304,22 +295,17 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                             _load();
                           },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                             decoration: BoxDecoration(
-                              color: priority == p
-                                  ? _priColor(p).withValues(alpha: 0.15)
-                                  : AppColors.bg2,
+                              color: priority == p ? AppColors.label : AppColors.bg2,
                               borderRadius: BorderRadius.circular(12),
-                              border: priority == p
-                                  ? Border.all(color: _priColor(p), width: 1.5)
-                                  : null,
                             ),
                             child: Text(
                               p[0].toUpperCase() + p.substring(1),
                               style: TextStyle(
-                                fontSize: 12,
-                                color: priority == p ? _priColor(p) : AppColors.label3,
-                                fontWeight: priority == p ? FontWeight.w600 : FontWeight.w400,
+                                fontSize: 13,
+                                color: priority == p ? AppColors.bg : AppColors.label3,
+                                fontWeight: priority == p ? FontWeight.w700 : FontWeight.w500,
                               ),
                             ),
                           ),
@@ -331,12 +317,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
               // ── Created at ────────────────────────────
               if (t['created_at'] != null) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
                     'Created ${_fmtDate(DateTime.parse(t['created_at']))}',
-                    style: const TextStyle(fontSize: 12, color: AppColors.label3),
+                    style: TextStyle(fontSize: 13, color: AppColors.label3),
                   ),
                 ),
               ],
@@ -344,48 +330,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               // ── Actions ───────────────────────────────
               if (status == 'pending') ...[
                 const SizedBox(height: 28),
-                GestureDetector(
-                  onTap: _saving ? null : _verify,
-                  child: Container(
-                    height: 54,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFE8C890), Color(0xFFB08040)],
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                      ),
-                      borderRadius: BorderRadius.circular(27),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.accent.withValues(alpha: 0.40),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Text('Verify Completion',
-                        style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w700,
-                          color: AppColors.bg, letterSpacing: 0.3,
-                        )),
-                    ),
-                  ),
+                FilledButton(
+                  onPressed: _saving ? null : _verify,
+                  child: const Text('Verify completion'),
                 ),
                 const SizedBox(height: 12),
                 GestureDetector(
                   onTap: _saving ? null : _fail,
                   child: Container(
-                    height: 48,
+                    height: 52,
                     decoration: BoxDecoration(
-                      color: AppColors.destructiveBg,
-                      borderRadius: BorderRadius.circular(24),
+                      color: AppColors.bg2,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.separator, width: 0.8),
                     ),
-                    child: const Center(
-                      child: Text('Mark as Failed',
+                    child: Center(
+                      child: Text('Mark as missed',
                         style: TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w600,
-                          color: AppColors.destructive,
+                          fontSize: 16, fontWeight: FontWeight.w600,
+                          color: AppColors.label,
                         )),
                     ),
                   ),
@@ -400,8 +363,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   Widget _detailCard({
     required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
     required String label,
     required String value,
     VoidCallback? onTap,
@@ -410,24 +371,20 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     child: Container(
       decoration: BoxDecoration(
         color: AppColors.card,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: cardShadow,
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       child: Row(children: [
-        Container(
-          width: 36, height: 36,
-          decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(10)),
-          child: Icon(icon, size: 18, color: iconColor),
-        ),
-        const SizedBox(width: 12),
+        Icon(icon, size: 22, color: AppColors.label),
+        const SizedBox(width: 14),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const TextStyle(fontSize: 11, color: AppColors.label3, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontSize: 14, color: AppColors.label, fontWeight: FontWeight.w500)),
+          Text(label, style: TextStyle(fontSize: 12, color: AppColors.label3, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 3),
+          Text(value, style: TextStyle(fontSize: 16, color: AppColors.label, fontWeight: FontWeight.w500)),
         ])),
         if (onTap != null)
-          const Icon(Icons.chevron_right, size: 18, color: AppColors.label3),
+          Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
       ]),
     ),
   );
@@ -439,32 +396,25 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       child: Container(
         decoration: BoxDecoration(
           color: AppColors.card,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           boxShadow: cardShadow,
         ),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            width: 36, height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.bg2,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.notes_rounded, size: 18, color: AppColors.label2),
-          ),
-          const SizedBox(width: 12),
+          Icon(Icons.notes_rounded, size: 22, color: AppColors.label),
+          const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Notes', style: TextStyle(fontSize: 11, color: AppColors.label3, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 2),
+            Text('Notes', style: TextStyle(fontSize: 12, color: AppColors.label3, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 3),
             Text(
               hasNotes ? t['description'] : 'Add notes…',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 16,
                 color: hasNotes ? AppColors.label : AppColors.label3,
               ),
             ),
           ])),
-          if (!isDone) const Icon(Icons.chevron_right, size: 18, color: AppColors.label3),
+          if (!isDone) Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
         ]),
       ),
     );
