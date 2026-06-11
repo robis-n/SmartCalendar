@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -65,36 +66,25 @@ class _MainShellState extends State<MainShell> {
       _dir = routeIndex > _lastIndex ? 1 : -1;
       _lastIndex = routeIndex;
     }
-    final dir = _dir;
 
     return Scaffold(
       extendBody: true,
       backgroundColor: AppColors.bg,
       body: ClipRect(
-        // Directional cross-fade: incoming slides in from the tap direction,
-        // outgoing slides away to the opposite side. Both move — that's what
-        // makes the motion read correctly going left AND right.
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeOutCubic,
-          transitionBuilder: (child, animation) {
-            final entering = child.key == ValueKey(routeIndex);
-            // Incoming travels 25% from the direction of travel; outgoing
-            // exits 18% the other way (its animation runs in reverse, so
-            // `begin` is where it ends up).
-            final begin = Offset(entering ? dir * 0.25 : -dir * 0.18, 0);
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(begin: begin, end: Offset.zero)
-                    .animate(animation),
-                child: child,
-              ),
-            );
-          },
-          layoutBuilder: (current, previous) =>
-              Stack(fit: StackFit.expand, children: [...previous, ?current]),
+        // Material shared-axis motion: outgoing and incoming screens slide
+        // together with a coordinated fade, mirrored automatically by
+        // `reverse` — correct direction both ways, no hand-rolled offsets.
+        child: PageTransitionSwitcher(
+          duration: const Duration(milliseconds: 320),
+          reverse: _dir < 0,
+          transitionBuilder: (child, primary, secondary) =>
+              SharedAxisTransition(
+            animation: primary,
+            secondaryAnimation: secondary,
+            transitionType: SharedAxisTransitionType.horizontal,
+            fillColor: Colors.transparent, // no flash over the app bg
+            child: child,
+          ),
           child: KeyedSubtree(
             key: ValueKey(routeIndex),
             // Isolate each tab's painting so the glass-blur nav doesn't force

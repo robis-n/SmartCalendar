@@ -39,7 +39,7 @@ class VerificationService {
           'task_description': taskDescription,
         'image_base64': base64Encode(bytes),
         'media_type': 'image/jpeg',
-      });
+      }).timeout(const Duration(seconds: 25));
       final data = res.data is Map
           ? Map<String, dynamic>.from(res.data as Map)
           : Map<String, dynamic>.from(jsonDecode(res.data as String) as Map);

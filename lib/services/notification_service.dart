@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import '../core/utils/time_utils.dart';
@@ -60,6 +61,12 @@ class NotificationService {
   Future<void> init() async {
     if (_initialized || kIsWeb) return;
     tz.initializeTimeZones();
+    // Required by flutter_local_notifications: zonedSchedule against the
+    // device's real IANA zone (DST-correct), not the UTC default.
+    try {
+      final info = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(info.identifier));
+    } catch (_) {/* UTC fallback still preserves absolute instants */}
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings(
@@ -81,13 +88,51 @@ class NotificationService {
       },
     );
 
-    // Request iOS permissions
+    // Request permissions (iOS prompt + Android 13 runtime permission).
     await _plugin
         .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(alert: true, badge: true, sound: true);
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
 
     _initialized = true;
+  }
+
+  /// Whether the OS will actually show our notifications. Surfaced in
+  /// Settings so "it never fired" is diagnosable on-device in seconds.
+  Future<bool> permissionsGranted() async {
+    if (kIsWeb) return false;
+    final ios = _plugin.resolvePlatformSpecificImplementation<
+        IOSFlutterLocalNotificationsPlugin>();
+    if (ios != null) {
+      final p = await ios.checkPermissions();
+      return p?.isEnabled ?? false;
+    }
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (android != null) {
+      return await android.areNotificationsEnabled() ?? false;
+    }
+    return true;
+  }
+
+  /// Fire a test notification in 30 seconds — end-to-end proof that
+  /// scheduling, timezone math and OS permission all work on this device.
+  Future<void> scheduleTestIn30s() async {
+    if (kIsWeb || !_initialized) return;
+    await _plugin.zonedSchedule(
+      999999,
+      'Reminders work 🎯',
+      'This fired 30 seconds after you tapped the test button.',
+      tz.TZDateTime.now(tz.local).add(const Duration(seconds: 30)),
+      _notifDetails(warning: false),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
   }
 
   /// Arm all reminders for one task. [deadline] must be device-local time
@@ -208,12 +253,20 @@ class NotificationService {
                     showsUserInterface: true),
               ],
       ),
-      iOS: const DarwinNotificationDetails(
+      iOS: DarwinNotificationDetails(
         presentAlert: true,
+        presentBanner: true, // iOS 14+ foreground banner
+        presentList: true,
         presentBadge: true,
         presentSound: true,
-        // `active`, not `timeSensitive` / `critical` — those bypass focus modes.
-        interruptionLevel: InterruptionLevel.active,
+        // Deadline + follow-ups are timeSensitive so a Focus mode (Sleep, DND,
+        // Work…) doesn't swallow them — this is exactly the moment the user
+        // asked to be nudged. iOS silently downgrades to `active` if the
+        // entitlement is missing, so this can never make things worse.
+        // The pre-deadline warning stays polite (`active`).
+        interruptionLevel: warning
+            ? InterruptionLevel.active
+            : InterruptionLevel.timeSensitive,
         categoryIdentifier: 'TASK_DEADLINE',
       ),
     );

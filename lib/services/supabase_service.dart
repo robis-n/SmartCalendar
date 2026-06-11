@@ -44,7 +44,11 @@ class SupabaseService {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return [];
     final now = tsToDb(DateTime.now());
-    final future = tsToDb(DateTime.now().add(const Duration(hours: 24)));
+    // 14 days, not 24h: rescheduleAll cancels everything on app open and
+    // re-arms only what this returns — a narrow window silently disarmed
+    // any task scheduled further out. iOS's 64-pending cap is enforced
+    // downstream (rescheduleAll stops at 56).
+    final future = tsToDb(DateTime.now().add(const Duration(days: 14)));
     final res = await client
         .from('tasks')
         .select()

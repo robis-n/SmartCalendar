@@ -67,7 +67,16 @@ class _DashboardScreenState extends State<DashboardScreen>
     final profile  = await SupabaseService.getUserProfile();
     final upcoming = await SupabaseService.getUpcomingPendingTasks();
 
-    NotificationService().rescheduleAll(upcoming);
+    // Respect the Settings toggle: re-arming while disabled would undo it.
+    final prefs = Map<String, dynamic>.from((profile?['preferences'] as Map?) ?? {});
+    final notifsOn = prefs['notifications_enabled'] as bool? ?? true;
+    NotificationService.leadMinutes =
+        prefs['reminder_lead_minutes'] as int? ?? NotificationService.leadMinutes;
+    if (notifsOn) {
+      NotificationService().rescheduleAll(upcoming);
+    } else {
+      NotificationService().cancelAll();
+    }
     NotificationService.onVerificationRequired = (id, title) {
       if (mounted) {
         Navigator.of(context).push(MaterialPageRoute(

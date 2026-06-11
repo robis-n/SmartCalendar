@@ -183,6 +183,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         trailing: '$_leadMins min before',
                         onTap: _pickLeadTime,
                       ),
+                      _divider(),
+                      // On-device diagnosis for "it never fired": one tap
+                      // proves permission + scheduling + timezone end-to-end.
+                      _row(
+                        icon: Icons.notification_add_outlined,
+                        title: 'Send test reminder',
+                        trailing: 'fires in 30 s',
+                        onTap: () async {
+                          final ok =
+                              await NotificationService().permissionsGranted();
+                          if (!ok) {
+                            _snack('Notifications are off for SmartCalendar — '
+                                'enable them in iOS Settings → Notifications');
+                            return;
+                          }
+                          await NotificationService().scheduleTestIn30s();
+                          _snack('Scheduled — lock your phone and wait 30 s');
+                        },
+                      ),
                     ],
                   ]),
                   const SizedBox(height: 22),
