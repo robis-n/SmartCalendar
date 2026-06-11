@@ -12,9 +12,11 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  // Last rendered tab — used to derive slide direction deterministically.
-  int _prev = 0;
-  int _lastDir = 1;
+  // Last rendered tab + slide direction. Updated *synchronously in build*
+  // (never post-frame): going right → content slides in from the right,
+  // going left → from the left, with no race on rapid switches.
+  int _lastIndex = 0;
+  int _dir = 1;
   int _nudgeBadge = 0;
 
   @override
@@ -59,29 +61,29 @@ class _MainShellState extends State<MainShell> {
     final path       = GoRouterState.of(context).uri.path;
     final routeIndex = _indexFor(path);
 
-    final dir = routeIndex > _prev ? 1 : (routeIndex < _prev ? -1 : _lastDir);
-    _lastDir = dir;
-    if (routeIndex != _prev) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _prev = routeIndex;
-      });
+    if (routeIndex != _lastIndex) {
+      _dir = routeIndex > _lastIndex ? 1 : -1;
+      _lastIndex = routeIndex;
     }
+    final dir = _dir;
 
     return Scaffold(
       extendBody: true,
       backgroundColor: AppColors.bg,
       body: ClipRect(
-        // Single-direction silky transition: cross-fade + a small parallax slide
-        // (not a full screen sweep — that caused the jank/jitter on rapid switch).
+        // Directional cross-fade: incoming slides in from the tap direction,
+        // outgoing slides away to the opposite side. Both move — that's what
+        // makes the motion read correctly going left AND right.
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 280),
+          duration: const Duration(milliseconds: 300),
           switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
+          switchOutCurve: Curves.easeOutCubic,
           transitionBuilder: (child, animation) {
             final entering = child.key == ValueKey(routeIndex);
-            // Subtle 24% horizontal parallax so it feels directional but doesn't
-            // fight the user. Only the incoming view moves — outgoing just fades.
-            final begin = Offset(entering ? dir * 0.24 : 0.0, 0);
+            // Incoming travels 25% from the direction of travel; outgoing
+            // exits 18% the other way (its animation runs in reverse, so
+            // `begin` is where it ends up).
+            final begin = Offset(entering ? dir * 0.25 : -dir * 0.18, 0);
             return FadeTransition(
               opacity: animation,
               child: SlideTransition(
@@ -93,7 +95,12 @@ class _MainShellState extends State<MainShell> {
           },
           layoutBuilder: (current, previous) =>
               Stack(fit: StackFit.expand, children: [...previous, ?current]),
-          child: KeyedSubtree(key: ValueKey(routeIndex), child: widget.child),
+          child: KeyedSubtree(
+            key: ValueKey(routeIndex),
+            // Isolate each tab's painting so the glass-blur nav doesn't force
+            // full-screen repaints mid-animation (a source of the lag).
+            child: RepaintBoundary(child: widget.child),
+          ),
         ),
       ),
 

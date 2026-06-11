@@ -3,9 +3,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../services/local_verification_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
+import '../../../services/verification_service.dart';
 
 /// Minimalist photo verification — pure ink+paper, single primary action,
 /// no decorative gradients. Sits over the ROOT navigator so it covers the
@@ -13,7 +13,13 @@ import '../../../services/supabase_service.dart';
 class VerificationScreen extends StatefulWidget {
   final String taskId;
   final String taskTitle;
-  const VerificationScreen({super.key, required this.taskId, required this.taskTitle});
+  final String? taskDescription;
+  const VerificationScreen({
+    super.key,
+    required this.taskId,
+    required this.taskTitle,
+    this.taskDescription,
+  });
 
   @override
   State<VerificationScreen> createState() => _VerificationScreenState();
@@ -26,7 +32,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
   int                  _attempts = 0;
   static const _maxAttempts = 3;
 
-  final _verifier = LocalVerificationService();
+  // Claude vision via Edge Function when available, on-device ML otherwise.
+  final _verifier = VerificationService();
 
   Future<void> _pickPhoto() async {
     final photo = await ImagePicker().pickImage(
@@ -43,8 +50,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
     setState(() => _loading = true);
     try {
+      final bytes = await _photo!.readAsBytes();
       final result = await _verifier.verifyPhoto(
-        taskTitle: widget.taskTitle, imagePath: _photo!.path);
+        taskTitle: widget.taskTitle,
+        taskDescription: widget.taskDescription,
+        imagePath: _photo!.path,
+        imageBytes: bytes,
+      );
       if (!mounted) return;
       setState(() { _result = result; _attempts++; });
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/time_utils.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../tasks/screens/add_task_screen.dart';
@@ -14,7 +15,8 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with WidgetsBindingObserver {
   List<Map<String, dynamic>> _tasks  = [];
   List<Map<String, dynamic>> _shared = [];
   String _tier    = AppConstants.tierFree;
@@ -27,6 +29,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _refreshClock();
     _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(_refreshClock);
@@ -36,8 +39,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _clockTimer?.cancel();
     super.dispose();
+  }
+
+  // Coming back from background = the user "opened the app": refresh data and
+  // re-arm reminders — rescheduleAll drops overdue follow-up nudges.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _load();
   }
 
   void _refreshClock() {
@@ -99,7 +110,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
     final r = await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
-      builder: (_) => VerificationScreen(taskId: task['id'], taskTitle: task['title']),
+      builder: (_) => VerificationScreen(
+          taskId: task['id'],
+          taskTitle: task['title'],
+          taskDescription: task['description'] as String?),
     ));
     if (r != null && mounted) _load();
   }
@@ -260,7 +274,7 @@ class _SharedRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final by = (task['_shared_by'] as String?) ?? 'a friend';
     final time = task['scheduled_time'] != null
-        ? _fmt(DateTime.parse(task['scheduled_time']))
+        ? _fmt(tsFromDb(task['scheduled_time']))
         : 'Anytime';
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
@@ -330,7 +344,7 @@ class _TaskRow extends StatelessWidget {
     final isDone   = status == 'verified';
     final isFailed = status == 'failed';
     final time     = task['scheduled_time'] != null
-        ? _fmtTime(DateTime.parse(task['scheduled_time']))
+        ? _fmtTime(tsFromDb(task['scheduled_time']))
         : null;
 
     return GestureDetector(

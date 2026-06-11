@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/time_utils.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 
@@ -181,7 +182,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         'user_id':        uid,
         'title':          _title.text.trim(),
         'description':    _desc.text.trim(),
-        'scheduled_time': _deadline.toIso8601String(),
+        'scheduled_time': tsToDb(_deadline),
         'status':         'pending',
         'ai_generated':   false,
         'priority':       _priority,
@@ -190,7 +191,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         await SupabaseService.addCollaborators(created['id'], _collab.toList());
       }
       await NotificationService().scheduleTaskNotifications(
-          taskId: created['id'], taskTitle: _title.text.trim(), deadline: _deadline);
+          taskId: created['id'], taskTitle: _title.text.trim(), deadline: _deadline,
+          priority: _priority);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
@@ -313,11 +315,11 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           ]),
           const SizedBox(height: 24),
 
-          // Priority — monochrome weight
-          _sectionLabel('PRIORITY'),
+          // Reminders — priority IS nudge intensity, not abstract importance.
+          _sectionLabel('REMINDERS'),
           const SizedBox(height: 10),
           Row(children: [
-            for (final p in ['low', 'medium', 'high']) ...[
+            for (final (p, label) in [('low', 'Gentle'), ('medium', 'Normal'), ('high', 'Persistent')]) ...[
               if (p != 'low') const SizedBox(width: 8),
               Expanded(
                 child: GestureDetector(
@@ -334,9 +336,9 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                       ),
                     ),
                     child: Center(
-                      child: Text(p[0].toUpperCase() + p.substring(1),
+                      child: Text(label,
                         style: TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w700,
+                          fontSize: 14, fontWeight: FontWeight.w700,
                           color: _priority == p ? AppColors.bg : AppColors.label3,
                         )),
                     ),
@@ -345,6 +347,18 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
               ),
             ],
           ]),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Text(
+              switch (_priority) {
+                'low'  => 'One quiet ping at the time. Nothing more.',
+                'high' => "Keeps nudging after the deadline until you open the app.",
+                _      => 'A heads-up before, plus a follow-up if you miss it.',
+              },
+              style: TextStyle(fontSize: 13, color: AppColors.label3, height: 1.4),
+            ),
+          ),
           const SizedBox(height: 24),
 
           // Collaborators — quiet, optional

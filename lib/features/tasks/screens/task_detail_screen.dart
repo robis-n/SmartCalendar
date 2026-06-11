@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/time_utils.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../verification/screens/verification_screen.dart';
@@ -66,9 +67,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   Future<void> _reschedule() async {
-    final cur = _task?['scheduled_time'] != null
-        ? DateTime.parse(_task!['scheduled_time'])
-        : DateTime.now().add(const Duration(hours: 1));
+    final cur = tsTryFromDb(_task?['scheduled_time'] as String?) ??
+        DateTime.now().add(const Duration(hours: 1));
     final d = await showDatePicker(context: context, initialDate: cur,
         firstDate: DateTime(2000),
         lastDate: DateTime(DateTime.now().year + 5, 12, 31));
@@ -76,9 +76,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(cur));
     if (t == null || !mounted) return;
     final dt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
-    await SupabaseService.updateTask(widget.taskId, {'scheduled_time': dt.toIso8601String()});
+    await SupabaseService.updateTask(widget.taskId, {'scheduled_time': tsToDb(dt)});
     await NotificationService().scheduleTaskNotifications(
-        taskId: widget.taskId, taskTitle: _task?['title'] ?? '', deadline: dt);
+        taskId: widget.taskId, taskTitle: _task?['title'] ?? '', deadline: dt,
+        priority: _task?['priority'] as String? ?? 'medium');
     _load();
   }
 
@@ -100,7 +101,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   Future<void> _verify() async {
     final r = await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
-      builder: (_) => VerificationScreen(taskId: widget.taskId, taskTitle: _task?['title'] ?? ''),
+      builder: (_) => VerificationScreen(
+          taskId: widget.taskId,
+          taskTitle: _task?['title'] ?? '',
+          taskDescription: _task?['description'] as String?),
     ));
     if (r != null && mounted) _load();
   }
@@ -189,7 +193,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     final t        = _task!;
     final status   = t['status'] as String? ?? 'pending';
     final priority = t['priority'] as String? ?? 'medium';
-    final sched    = t['scheduled_time'] != null ? DateTime.parse(t['scheduled_time']) : null;
+    final sched    = tsTryFromDb(t['scheduled_time'] as String?);
 
     final statusLabel = switch (status) {
       'verified'    => 'Completed',
@@ -267,28 +271,34 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 ),
                 padding: const EdgeInsets.all(18),
                 child: Row(children: [
-                  Icon(Icons.flag_outlined, size: 22, color: AppColors.label),
+                  Icon(Icons.notifications_none_rounded, size: 22, color: AppColors.label),
                   const SizedBox(width: 14),
-                  Text('Priority', style: TextStyle(fontSize: 16, color: AppColors.label2)),
+                  Text('Reminders', style: TextStyle(fontSize: 16, color: AppColors.label2)),
                   const Spacer(),
                   Row(mainAxisSize: MainAxisSize.min, children: [
-                      for (final p in ['low', 'medium', 'high']) ...[
+                      for (final (p, label) in [('low', 'Gentle'), ('medium', 'Normal'), ('high', 'Persistent')]) ...[
                         if (p != 'low') const SizedBox(width: 6),
                         GestureDetector(
                           onTap: () async {
                             await SupabaseService.updateTask(widget.taskId, {'priority': p});
+                            // Re-arm with the new nudge intensity right away.
+                            if (sched != null && status == 'pending') {
+                              await NotificationService().scheduleTaskNotifications(
+                                  taskId: widget.taskId, taskTitle: t['title'] ?? '',
+                                  deadline: sched, priority: p);
+                            }
                             _load();
                           },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                             decoration: BoxDecoration(
                               color: priority == p ? AppColors.label : AppColors.bg2,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
-                              p[0].toUpperCase() + p.substring(1),
+                              label,
                               style: TextStyle(
-                                fontSize: 13,
+                                fontSize: 12,
                                 color: priority == p ? AppColors.bg : AppColors.label3,
                                 fontWeight: priority == p ? FontWeight.w700 : FontWeight.w500,
                               ),
@@ -306,7 +316,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    'Created ${_fmtDate(DateTime.parse(t['created_at']))}',
+                    'Created ${_fmtDate(tsFromDb(t['created_at']))}',
                     style: TextStyle(fontSize: 13, color: AppColors.label3),
                   ),
                 ),
@@ -334,7 +344,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     if (sched != null) {
                       await NotificationService().scheduleTaskNotifications(
                           taskId: widget.taskId, taskTitle: t['title'] ?? '',
-                          deadline: sched);
+                          deadline: sched,
+                          priority: t['priority'] as String? ?? 'medium');
                     }
                     if (mounted) { setState(() => _saving = false); _load(); }
                   },

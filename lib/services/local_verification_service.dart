@@ -92,10 +92,11 @@ class LocalVerificationService {
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
-  /// Verify a photo against [taskTitle].
+  /// Verify a photo against [taskTitle] (and optional [taskDescription]).
   /// Returns: { verified, confidence (0–1), feedback, labels (comma list) }
   Future<Map<String, dynamic>> verifyPhoto({
     required String taskTitle,
+    String? taskDescription,
     required String imagePath,
   }) async {
     // Web: ML Kit is not supported — auto-approve so the flow still works
@@ -145,8 +146,9 @@ class LocalVerificationService {
 
     final topLabels = rawLabels.take(6).map((l) => l.label).join(', ');
 
-    // ── Keyword extraction from task title ────────────────────────────────
-    final keywords = _extractKeywords(taskTitle);
+    // ── Keyword extraction from title + notes ─────────────────────────────
+    final keywords = _extractKeywords(
+        '$taskTitle ${taskDescription ?? ''}');
 
     // ── Match labels against keywords ─────────────────────────────────────
     double bestScore = 0.0;
@@ -167,7 +169,9 @@ class LocalVerificationService {
     }
 
     // ── Decision ──────────────────────────────────────────────────────────
-    const threshold = 0.50; // minimum confidence to auto-verify
+    // 0.45: ML Kit labels for real-world evidence photos rarely score >0.6,
+    // and rejecting honest users is worse than accepting a borderline photo.
+    const threshold = 0.45;
 
     if (bestScore >= threshold) {
       return {
@@ -180,7 +184,7 @@ class LocalVerificationService {
 
     // Softer pass: multiple weak matches
     final weakScore = _weakMatchScore(rawLabels, keywords);
-    if (weakScore >= 0.45) {
+    if (weakScore >= 0.40) {
       return {
         'verified':   true,
         'confidence': weakScore,
@@ -220,13 +224,32 @@ class LocalVerificationService {
     return expanded;
   }
 
-  /// True if [labelText] contains or equals [keyword] (or vice-versa).
+  /// True if [labelText] relates to [keyword]. ML Kit labels can be
+  /// multi-word ("Musical instrument") — compare per word, with naive
+  /// stemming so "running"/"run" and "computers"/"computer" line up.
   bool _isMatch(String labelText, String keyword) {
     if (keyword.isEmpty) return false;
     if (labelText == keyword) return true;
-    if (labelText.contains(keyword)) return true;
-    if (keyword.contains(labelText)) return true;
+    if (labelText.contains(keyword) || keyword.contains(labelText)) return true;
+    final kw = _stem(keyword);
+    for (final word in labelText.split(RegExp(r'[\s\-]+'))) {
+      final w = _stem(word);
+      if (w.isEmpty) continue;
+      if (w == kw || w.contains(kw) || kw.contains(w)) return true;
+    }
     return false;
+  }
+
+  /// Naive suffix-stripping stemmer — enough to align everyday word forms.
+  String _stem(String w) {
+    var s = w;
+    for (final suf in ['ing', 'ers', 'er', 'ies', 'es', 's', 'ed']) {
+      if (s.length > suf.length + 2 && s.endsWith(suf)) {
+        s = s.substring(0, s.length - suf.length);
+        break;
+      }
+    }
+    return s;
   }
 
   /// Accumulate weak signal: sum of (confidence × partial match) across labels.

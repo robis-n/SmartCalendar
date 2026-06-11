@@ -7,7 +7,11 @@ import '../../../core/theme/app_theme.dart';
 import '../../../services/supabase_service.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  /// When true, this screen was *pushed* from Settings to add another
+  /// account: on success it pops back instead of routing to the dashboard,
+  /// and the previous account stays remembered (no sign-out happened).
+  final bool addAccount;
+  const LoginScreen({super.key, this.addAccount = false});
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
@@ -59,7 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       await Supabase.instance.client.auth.signInWithPassword(
           email: email, password: _password.text.trim());
-      if (mounted) context.go('/dashboard');
+      if (mounted) _onSignedIn();
     } catch (e) {
       _snack(_friendlyError(e));
     } finally {
@@ -86,7 +90,15 @@ class _LoginScreenState extends State<LoginScreen> {
         'username': 'ceo', 'subscription_tier': AppConstants.tierAdmin,
       });
     }
-    if (mounted) context.go('/dashboard');
+    if (mounted) _onSignedIn();
+  }
+
+  void _onSignedIn() {
+    if (widget.addAccount) {
+      Navigator.of(context).pop(true);
+    } else {
+      context.go('/dashboard');
+    }
   }
 
   // ── Sign up (with username) ────────────────────────────────────────────────
@@ -147,6 +159,17 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
+      // When adding an account from Settings the user must be able to bail.
+      appBar: widget.addAccount
+          ? AppBar(
+              backgroundColor: AppColors.bg,
+              elevation: 0,
+              leading: IconButton(
+                icon: Icon(Icons.close_rounded, color: AppColors.label2),
+                onPressed: () => Navigator.of(context).pop(false),
+              ),
+            )
+          : null,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(

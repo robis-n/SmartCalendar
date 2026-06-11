@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/utils/time_utils.dart';
 
 class SupabaseService {
   static SupabaseClient get client => Supabase.instance.client;
@@ -13,8 +14,8 @@ class SupabaseService {
   static Future<List<Map<String, dynamic>>> getTasksForDate(DateTime date) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return [];
-    final start = DateTime(date.year, date.month, date.day).toIso8601String();
-    final end = DateTime(date.year, date.month, date.day, 23, 59, 59).toIso8601String();
+    final start = tsToDb(DateTime(date.year, date.month, date.day));
+    final end = tsToDb(DateTime(date.year, date.month, date.day, 23, 59, 59));
     final res = await client
         .from('tasks')
         .select()
@@ -28,8 +29,8 @@ class SupabaseService {
   static Future<List<Map<String, dynamic>>> getTasksForMonth(int year, int month) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return [];
-    final start = DateTime(year, month, 1).toIso8601String();
-    final end = DateTime(year, month + 1, 0, 23, 59, 59).toIso8601String();
+    final start = tsToDb(DateTime(year, month, 1));
+    final end = tsToDb(DateTime(year, month + 1, 0, 23, 59, 59));
     final res = await client
         .from('tasks')
         .select('id, scheduled_time, status')
@@ -42,8 +43,8 @@ class SupabaseService {
   static Future<List<Map<String, dynamic>>> getUpcomingPendingTasks() async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return [];
-    final now = DateTime.now().toIso8601String();
-    final future = DateTime.now().add(const Duration(hours: 24)).toIso8601String();
+    final now = tsToDb(DateTime.now());
+    final future = tsToDb(DateTime.now().add(const Duration(hours: 24)));
     final res = await client
         .from('tasks')
         .select()
@@ -80,7 +81,7 @@ class SupabaseService {
     await client.from('tasks').update({
       'status': status,
       if (status == 'verified' || status == 'failed')
-        'completed_at': DateTime.now().toIso8601String(),
+        'completed_at': tsToDb(DateTime.now()),
     }).eq('id', taskId);
   }
 
@@ -108,7 +109,7 @@ class SupabaseService {
     final weekStart = now.subtract(Duration(days: now.weekday - 1));
     final weekTasks = tasks.where((t) {
       if (t['scheduled_time'] == null) return false;
-      final d = DateTime.tryParse(t['scheduled_time']);
+      final d = tsTryFromDb(t['scheduled_time']);
       return d != null && d.isAfter(weekStart);
     }).toList();
 
@@ -352,7 +353,7 @@ class SupabaseService {
     final stampField = isCreator ? 'creator_completed_at' : 'partner_completed_at';
     await client.from('challenges').update({
       field: true,
-      stampField: DateTime.now().toIso8601String(),
+      stampField: tsToDb(DateTime.now()),
     }).eq('id', c['id']);
   }
 
@@ -454,8 +455,8 @@ class SupabaseService {
     final taskIds = collabs.map((c) => c['task_id']).whereType<String>().toList();
     if (taskIds.isEmpty) return [];
 
-    final start = DateTime(date.year, date.month, date.day).toIso8601String();
-    final end = DateTime(date.year, date.month, date.day, 23, 59, 59).toIso8601String();
+    final start = tsToDb(DateTime(date.year, date.month, date.day));
+    final end = tsToDb(DateTime(date.year, date.month, date.day, 23, 59, 59));
     final tasks = List<Map<String, dynamic>>.from(
       await client.from('tasks').select()
           .inFilter('id', taskIds)

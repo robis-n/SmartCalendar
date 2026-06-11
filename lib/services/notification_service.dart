@@ -2,7 +2,19 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
+import '../core/utils/time_utils.dart';
 
+/// Reminder engine.
+///
+/// Priority means *how hard the app nudges*, not abstract importance:
+///   low    (Gentle)     → one quiet ping at the deadline.
+///   medium (Normal)     → heads-up before + deadline + a couple follow-ups.
+///   high   (Persistent) → heads-up + deadline + escalating follow-ups
+///                         (+30s, +2m, +5m, +15m, +30m) until the app is opened.
+///
+/// Follow-ups self-destruct when the user opens the app: every dashboard load
+/// calls [rescheduleAll], which cancels everything and re-arms only tasks whose
+/// deadline is still in the future — so overdue follow-ups simply vanish.
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
@@ -16,6 +28,34 @@ class NotificationService {
 
   // How many minutes before deadline to show the warning — updated from Settings
   static int leadMinutes = 15;
+
+  // Per-task notification id slots: +0 warning, +1 deadline, +2.. follow-ups.
+  static const int _slotsPerTask = 8;
+
+  // Follow-up offsets after the deadline, by priority. iOS allows only 64
+  // pending local notifications app-wide, so these are deliberately capped.
+  static const Map<String, List<Duration>> _followUps = {
+    'low': [],
+    'medium': [
+      Duration(seconds: 30),
+      Duration(minutes: 10),
+    ],
+    'high': [
+      Duration(seconds: 30),
+      Duration(minutes: 2),
+      Duration(minutes: 5),
+      Duration(minutes: 15),
+      Duration(minutes: 30),
+    ],
+  };
+
+  static const List<String> _followUpLines = [
+    'Still there. Open the app and prove it.',
+    'Your task is waiting.',
+    'This one is overdue.',
+    'Not letting this slide.',
+    'Last call — do it now.',
+  ];
 
   Future<void> init() async {
     if (_initialized || kIsWeb) return;
@@ -50,59 +90,65 @@ class NotificationService {
     _initialized = true;
   }
 
-  /// Schedule a 15-minute warning + deadline notification for a task
-  Future<void> scheduleTaskNotifications({
+  /// Arm all reminders for one task. [deadline] must be device-local time
+  /// (i.e. parsed via [tsFromDb]) — it is converted to an absolute instant.
+  Future<int> scheduleTaskNotifications({
     required String taskId,
     required String taskTitle,
     required DateTime deadline,
+    String priority = 'medium',
   }) async {
-    if (kIsWeb || !_initialized) return;
+    if (kIsWeb || !_initialized) return 0;
 
     final now = DateTime.now();
-
-    // Cancel any existing notifications for this task
     await cancelTaskNotifications(taskId);
 
-    final idBase = taskId.hashCode.abs() % 100000;
+    final idBase = (taskId.hashCode.abs() % 100000) * _slotsPerTask;
+    var scheduled = 0;
 
-    // Warning notification (lead time from settings)
-    final warningTime = deadline.subtract(Duration(minutes: leadMinutes));
-    if (warningTime.isAfter(now)) {
+    Future<void> arm(int slot, DateTime at, String title, String body) async {
+      if (!at.isAfter(now)) return;
       await _plugin.zonedSchedule(
-        idBase,
-        '⏰ Task due in $leadMinutes minutes',
-        taskTitle,
-        tz.TZDateTime.from(warningTime, tz.local),
-        _notifDetails(taskTitle, warning: true),
+        idBase + slot,
+        title,
+        body,
+        tz.TZDateTime.from(at, tz.local),
+        _notifDetails(warning: slot == 0),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         payload: '$taskId|$taskTitle',
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
+      scheduled++;
     }
 
-    // Deadline notification — persistent, requires action
-    if (deadline.isAfter(now)) {
-      await _plugin.zonedSchedule(
-        idBase + 1,
-        '📸 Prove it! Task deadline reached',
-        'Take a photo to verify: $taskTitle',
-        tz.TZDateTime.from(deadline, tz.local),
-        _notifDetails(taskTitle, warning: false),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        payload: '$taskId|$taskTitle',
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
+    // Heads-up before the deadline — only for medium/high.
+    if (priority != 'low') {
+      await arm(0, deadline.subtract(Duration(minutes: leadMinutes)),
+          'Coming up in $leadMinutes min', taskTitle);
     }
+
+    // The deadline itself.
+    await arm(1, deadline, "Time's up — prove it", taskTitle);
+
+    // Escalating follow-ups. They only exist while the app stays closed:
+    // opening the app triggers rescheduleAll, which wipes them once the
+    // deadline is in the past.
+    final fups = _followUps[priority] ?? const <Duration>[];
+    for (var i = 0; i < fups.length; i++) {
+      await arm(2 + i, deadline.add(fups[i]),
+          _followUpLines[i % _followUpLines.length], taskTitle);
+    }
+    return scheduled;
   }
 
-  /// Cancel all notifications for a specific task
+  /// Cancel all notification slots for a specific task.
   Future<void> cancelTaskNotifications(String taskId) async {
     if (kIsWeb) return;
-    final idBase = taskId.hashCode.abs() % 100000;
-    await _plugin.cancel(idBase);
-    await _plugin.cancel(idBase + 1);
+    final idBase = (taskId.hashCode.abs() % 100000) * _slotsPerTask;
+    for (var i = 0; i < _slotsPerTask; i++) {
+      await _plugin.cancel(idBase + i);
+    }
   }
 
   /// Cancel ALL notifications
@@ -111,29 +157,35 @@ class NotificationService {
     await _plugin.cancelAll();
   }
 
-  /// Schedule notifications for all upcoming pending tasks
+  /// Re-arm reminders for all upcoming pending tasks. Called on every app
+  /// open / dashboard refresh — this is also what silences overdue follow-up
+  /// nudges (their deadline is in the past, so they are not re-created).
+  ///
+  /// iOS caps pending local notifications at 64 app-wide; stop short of it.
   Future<void> rescheduleAll(List<Map<String, dynamic>> tasks) async {
     if (kIsWeb) return;
     await cancelAll();
+    var total = 0;
     for (final task in tasks) {
       if (task['scheduled_time'] == null) continue;
-      final deadline = DateTime.tryParse(task['scheduled_time']);
+      final deadline = tsTryFromDb(task['scheduled_time'] as String?);
       if (deadline == null || deadline.isBefore(DateTime.now())) continue;
-      await scheduleTaskNotifications(
+      total += await scheduleTaskNotifications(
         taskId: task['id'],
         taskTitle: task['title'] ?? 'Task',
         deadline: deadline,
+        priority: task['priority'] as String? ?? 'medium',
       );
+      if (total >= 56) break;
     }
   }
 
   // ── Notification style ────────────────────────────────────────────────────
-  // Safety: this used to spam — `ongoing: true` made the deadline notification
-  // persistent (impossible to dismiss on Android), `Importance.max` ran the
-  // full alarm channel (continuous vibration, full-screen on some OEMs), and
-  // we never set `onlyAlertOnce` so any re-post (e.g. after reboot) would
-  // re-vibrate. New behavior: a single, dismissable, polite ping.
-  NotificationDetails _notifDetails(String taskTitle, {required bool warning}) {
+  // Safety: a single dismissable, polite ping. Never `ongoing`, never
+  // `Importance.max` (forced alarm channel), never re-alerting on re-post.
+  // "Persistent" pressure comes from *separate scheduled follow-ups*, each
+  // individually dismissable — not from one un-dismissable notification.
+  NotificationDetails _notifDetails({required bool warning}) {
     return NotificationDetails(
       android: AndroidNotificationDetails(
         warning ? 'task_warning' : 'task_deadline',
@@ -141,12 +193,12 @@ class NotificationService {
         channelDescription: warning
             ? 'Reminder before a task deadline'
             : 'When a task deadline is reached',
-        importance: Importance.high,           // not .max → no full-screen / forced alarm
-        priority:   Priority.high,
-        ongoing:    false,                     // ← was true: that's what caused the "spam"
+        importance: Importance.high,
+        priority: Priority.high,
+        ongoing: false,
         autoCancel: true,
-        onlyAlertOnce: true,                   // never re-vibrate if the OS re-posts
-        playSound:  true,
+        onlyAlertOnce: true,
+        playSound: true,
         enableVibration: true,
         category: AndroidNotificationCategory.reminder,
         actions: warning

@@ -4,9 +4,13 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_provider.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../../core/constants/app_constants.dart';
+import '../../../services/account_manager.dart';
+import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
+import '../../auth/screens/login_screen.dart';
 import '../../friends/screens/friends_screen.dart';
 import '../../analytics/screens/analytics_screen.dart';
 import '../../subscriptions/screens/subscription_screen.dart';
@@ -24,6 +28,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int    _leadMins   = 15;
   String _visibility = 'friends';
   bool   _shareStats = false;
+  bool   _deviceCals = DeviceCalendarService.enabled;
   bool   _loading    = true;
 
   @override
@@ -152,6 +157,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ]),
                   const SizedBox(height: 22),
 
+                  // ── Accounts — instant switching, no retyping ─────
+                  _sectionLabel('ACCOUNTS'),
+                  _accountsSection(),
+                  const SizedBox(height: 22),
+
                   // ── Notifications ─────────────────────────────────
                   _sectionLabel('NOTIFICATIONS'),
                   _section([
@@ -176,6 +186,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ]),
                   const SizedBox(height: 22),
+
+                  // ── Calendars (Apple / Google via the phone) ──────
+                  if (!kIsWeb) ...[
+                    _sectionLabel('CALENDARS'),
+                    _section([
+                      _switchRow(
+                        icon: Icons.calendar_month_outlined,
+                        title: 'Show phone calendars',
+                        value: _deviceCals,
+                        onChanged: (v) async {
+                          if (v) {
+                            final ok = await DeviceCalendarService.ensurePermission();
+                            if (!ok) {
+                              _snack('Calendar access was denied — allow it in iOS Settings');
+                              return;
+                            }
+                          }
+                          await DeviceCalendarService.setEnabled(v);
+                          setState(() => _deviceCals = v);
+                        },
+                      ),
+                    ]),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
+                      child: Text(
+                        'Events from Apple Calendar and any Google accounts on this phone appear inside your calendar. Read-only — your tasks stay private.',
+                        style: TextStyle(fontSize: 12, color: AppColors.label3, height: 1.4),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                  ],
 
                   // ── Privacy ───────────────────────────────────────
                   _sectionLabel('PRIVACY'),
@@ -219,10 +260,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ]),
                   const SizedBox(height: 22),
 
-                  // Sign out
+                  // Sign out — also forgets this account locally, because
+                  // signOut revokes the refresh token we stored for it.
                   GestureDetector(
                     onTap: () async {
-                      await Supabase.instance.client.auth.signOut();
+                      await AccountManager.signOutCurrent();
                       if (!mounted) return;
                       // ignore: use_build_context_synchronously
                       context.go('/login');
@@ -245,6 +287,113 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ]),
     );
+  }
+
+  // ── Accounts (multi-session switcher) ─────────────────────────────────────
+
+  Widget _accountsSection() {
+    final accounts = AccountManager.accounts();
+    final meId = AccountManager.currentUserId();
+    final children = <Widget>[];
+
+    for (var i = 0; i < accounts.length; i++) {
+      final a = accounts[i];
+      final isMe = a['id'] == meId;
+      final username = (a['username'] as String?) ?? '';
+      final title = username.isNotEmpty ? '@$username' : (a['email'] ?? '?');
+      if (i > 0) children.add(_divider());
+      children.add(InkWell(
+        onTap: isMe ? null : () => _switchAccount(a),
+        onLongPress: isMe ? null : () => _forgetAccountDialog(a),
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          child: Row(children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color: isMe ? AppColors.label : AppColors.bg2,
+                shape: BoxShape.circle,
+                border: isMe ? null : Border.all(color: AppColors.separator, width: 0.8),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                title.replaceFirst('@', '').isNotEmpty
+                    ? title.replaceFirst('@', '')[0].toUpperCase() : '?',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
+                    color: isMe ? AppColors.bg : AppColors.label),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500,
+                      color: AppColors.label)),
+              if (isMe)
+                Text('Current', style: TextStyle(fontSize: 12, color: AppColors.label3)),
+            ])),
+            if (!isMe)
+              Text('Switch', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+                  color: AppColors.label3)),
+          ]),
+        ),
+      ));
+    }
+
+    children.add(_divider());
+    children.add(_row(
+      icon: Icons.person_add_alt_1_outlined,
+      title: 'Add account',
+      onTap: _addAccount,
+    ));
+
+    return _section(children);
+  }
+
+  Future<void> _switchAccount(Map<String, dynamic> a) async {
+    final err = await AccountManager.switchTo(a['id'] as String);
+    if (!mounted) return;
+    if (err != null) {
+      _snack(err);
+      setState(() {}); // dead entry was dropped — refresh the list
+      return;
+    }
+    _snack('Switched to ${(a['username'] as String?)?.isNotEmpty == true ? '@${a['username']}' : a['email']}');
+    context.go('/dashboard');
+  }
+
+  void _forgetAccountDialog(Map<String, dynamic> a) => showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: AppColors.card,
+      title: Text('Forget this account?',
+          style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.label)),
+      content: Text('${a['email']} will need to sign in again on this device.',
+          style: TextStyle(color: AppColors.label2)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx),
+            child: Text('Keep', style: TextStyle(color: AppColors.label3))),
+        TextButton(
+          onPressed: () async {
+            Navigator.pop(ctx);
+            await AccountManager.forget(a['id'] as String);
+            if (mounted) setState(() {});
+          },
+          child: Text('Forget',
+              style: TextStyle(color: AppColors.label, fontWeight: FontWeight.w700)),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _addAccount() async {
+    final ok = await Navigator.of(context, rootNavigator: true).push<bool>(
+      MaterialPageRoute(builder: (_) => const LoginScreen(addAccount: true)),
+    );
+    if (ok == true && mounted) {
+      _snack('Account added');
+      context.go('/dashboard');
+    }
   }
 
   // ── Section helpers ────────────────────────────────────────────────────────

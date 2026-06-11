@@ -12,6 +12,12 @@
 	<string>SmartCalendar would like to save verification photos to your library.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Microphone access is required for video verification.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>SmartCalendar shows events from your Apple and Google calendars alongside your tasks.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>SmartCalendar shows events from your Apple and Google calendars alongside your tasks.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Calendar event details may reference your contacts.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

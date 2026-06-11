@@ -10,8 +10,9 @@ class AppConstants {
   static const String tierPremium = 'premium';
   static const String tierAdmin = 'admin'; // CEO / internal
 
-  // Claude model
-  static const String claudeModel = 'claude-3-5-sonnet-20241022';
+  // Claude model (vision verification runs server-side in the verify-photo
+  // Edge Function; override there with the ANTHROPIC_MODEL secret)
+  static const String claudeModel = 'claude-opus-4-8';
 
   // Stripe price IDs (replace with real ones from Stripe dashboard)
   static const String stripePriceMonthlyPro = 'price_pro_monthly';

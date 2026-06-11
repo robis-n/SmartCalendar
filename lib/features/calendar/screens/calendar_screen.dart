@@ -1,6 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/time_utils.dart';
+import '../../../services/device_calendar_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../tasks/screens/task_detail_screen.dart';
 import '../../tasks/screens/add_task_screen.dart';
@@ -209,7 +211,7 @@ class _MonthViewState extends State<_MonthView> {
     setState(() {
       _taskDays = t
           .where((e) => e['scheduled_time'] != null)
-          .map((e) => DateTime.parse(e['scheduled_time']).day)
+          .map((e) => tsFromDb(e['scheduled_time']).day)
           .toSet();
     });
   }
@@ -323,6 +325,7 @@ class _DaySheet extends StatefulWidget {
 
 class _DaySheetState extends State<_DaySheet> {
   List<Map<String, dynamic>> _tasks = [];
+  List<DeviceEvent> _deviceEvents = [];
   bool _loading = true;
 
   static const _mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -333,7 +336,9 @@ class _DaySheetState extends State<_DaySheet> {
 
   Future<void> _load() async {
     final t = await SupabaseService.getTasksForDate(widget.day);
-    if (mounted) setState(() { _tasks = t; _loading = false; });
+    // Apple/Google events come from the phone's calendars (if enabled).
+    final ev = await DeviceCalendarService.eventsForDay(widget.day);
+    if (mounted) setState(() { _tasks = t; _deviceEvents = ev; _loading = false; });
   }
 
   Future<void> _openTask(Map<String, dynamic> task) async {
@@ -353,6 +358,89 @@ class _DaySheetState extends State<_DaySheet> {
   String _fmtTime(DateTime d) {
     final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
     return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+  }
+
+  Widget _taskRow(Map<String, dynamic> t) {
+    final status = t['status'] as String? ?? 'pending';
+    final isDone = status == 'verified';
+    final isFailed = status == 'failed';
+    final time = t['scheduled_time'] != null
+        ? _fmtTime(tsFromDb(t['scheduled_time']))
+        : 'Anytime';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openTask(t),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Row(children: [
+          Container(
+            width: 30, height: 30,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isDone ? AppColors.label : Colors.transparent,
+              border: isDone ? null
+                  : Border.all(color: AppColors.separator, width: 1.5),
+            ),
+            child: Icon(
+              isDone ? Icons.check_rounded
+                  : isFailed ? Icons.close_rounded : null,
+              size: 17,
+              color: isDone ? AppColors.bg : AppColors.label3,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(t['title'] ?? '',
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w600,
+                  color: isDone ? AppColors.label3 : AppColors.label,
+                  decoration: isDone ? TextDecoration.lineThrough : null,
+                  decorationColor: AppColors.label3,
+                  letterSpacing: -0.3,
+                )),
+              const SizedBox(height: 3),
+              Text(time,
+                style: TextStyle(fontSize: 14, color: AppColors.label3)),
+            ],
+          )),
+          Icon(Icons.chevron_right_rounded,
+              color: AppColors.label3, size: 22),
+        ]),
+      ),
+    );
+  }
+
+  // Read-only row for an Apple/Google calendar event on the phone.
+  Widget _eventRow(DeviceEvent e) {
+    final when = e.allDay
+        ? 'All day'
+        : [
+            if (e.start != null) _fmtTime(e.start!),
+            if (e.end != null) _fmtTime(e.end!),
+          ].join(' – ');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(children: [
+        Icon(Icons.calendar_month_outlined, size: 20, color: AppColors.label3),
+        const SizedBox(width: 14),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(e.title,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 16, fontWeight: FontWeight.w500,
+              color: AppColors.label2, letterSpacing: -0.2,
+            )),
+          const SizedBox(height: 2),
+          Text(
+            e.calendarName.isEmpty ? when : '$when · ${e.calendarName}',
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 13, color: AppColors.label3)),
+        ])),
+      ]),
+    );
   }
 
   @override
@@ -414,71 +502,39 @@ class _DaySheetState extends State<_DaySheet> {
                             child: Center(child: CircularProgressIndicator(
                                 strokeWidth: 2, color: AppColors.label)),
                           )
-                        : _tasks.isEmpty
+                        : (_tasks.isEmpty && _deviceEvents.isEmpty)
                             ? Padding(
                                 padding: const EdgeInsets.fromLTRB(24, 24, 24, 48),
                                 child: Text('No reminders this day.',
                                   style: TextStyle(fontSize: 16, color: AppColors.label3)),
                               )
-                            : ListView.separated(
+                            : ListView(
                                 shrinkWrap: true,
                                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                                itemCount: _tasks.length,
-                                separatorBuilder: (_, _) =>
-                                    Container(height: 0.5, color: AppColors.separator),
-                                itemBuilder: (ctx, i) {
-                                  final t = _tasks[i];
-                                  final status = t['status'] as String? ?? 'pending';
-                                  final isDone = status == 'verified';
-                                  final isFailed = status == 'failed';
-                                  final time = t['scheduled_time'] != null
-                                      ? _fmtTime(DateTime.parse(t['scheduled_time']))
-                                      : 'Anytime';
-                                  return GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: () => _openTask(t),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                children: [
+                                  for (var i = 0; i < _tasks.length; i++) ...[
+                                    if (i > 0)
+                                      Container(height: 0.5, color: AppColors.separator),
+                                    _taskRow(_tasks[i]),
+                                  ],
+                                  if (_deviceEvents.isNotEmpty) ...[
+                                    Padding(
+                                      padding: EdgeInsets.only(
+                                          top: _tasks.isEmpty ? 4 : 20, bottom: 4),
                                       child: Row(children: [
-                                        Container(
-                                          width: 30, height: 30,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: isDone ? AppColors.label : Colors.transparent,
-                                            border: isDone ? null
-                                                : Border.all(color: AppColors.separator, width: 1.5),
-                                          ),
-                                          child: Icon(
-                                            isDone ? Icons.check_rounded
-                                                : isFailed ? Icons.close_rounded : null,
-                                            size: 17,
-                                            color: isDone ? AppColors.bg : AppColors.label3,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 14),
-                                        Expanded(child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(t['title'] ?? '',
-                                              maxLines: 1, overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 18, fontWeight: FontWeight.w600,
-                                                color: isDone ? AppColors.label3 : AppColors.label,
-                                                decoration: isDone ? TextDecoration.lineThrough : null,
-                                                decorationColor: AppColors.label3,
-                                                letterSpacing: -0.3,
-                                              )),
-                                            const SizedBox(height: 3),
-                                            Text(time,
-                                              style: TextStyle(fontSize: 14, color: AppColors.label3)),
-                                          ],
-                                        )),
-                                        Icon(Icons.chevron_right_rounded,
-                                            color: AppColors.label3, size: 22),
+                                        Text('FROM YOUR CALENDARS',
+                                          style: TextStyle(
+                                            fontSize: 11, fontWeight: FontWeight.w800,
+                                            color: AppColors.label3, letterSpacing: 1.6,
+                                          )),
+                                        const SizedBox(width: 10),
+                                        Expanded(child: Container(
+                                            height: 0.5, color: AppColors.separator)),
                                       ]),
                                     ),
-                                  );
-                                },
+                                    for (final e in _deviceEvents) _eventRow(e),
+                                  ],
+                                ],
                               ),
                   ),
                 ]),
