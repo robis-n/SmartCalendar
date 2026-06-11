@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../services/supabase_service.dart';
 
 class MainShell extends StatefulWidget {
   final Widget child;
@@ -14,6 +15,18 @@ class _MainShellState extends State<MainShell> {
   // Last rendered tab — used to derive slide direction deterministically.
   int _prev = 0;
   int _lastDir = 1;
+  int _nudgeBadge = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNudgeBadge();
+  }
+
+  Future<void> _loadNudgeBadge() async {
+    final n = await SupabaseService.unseenNudgeCount();
+    if (mounted) setState(() => _nudgeBadge = n);
+  }
 
   static const _routes = ['/dashboard', '/calendar', '/settings'];
   // Icons-only nav per request → no label strings needed.
@@ -36,6 +49,8 @@ class _MainShellState extends State<MainShell> {
 
   void _onTab(BuildContext context, int i, int current) {
     if (i == current) return;
+    // Clear nudge badge when switching to profile/friends tab.
+    if (i == 2 && _nudgeBadge > 0) setState(() => _nudgeBadge = 0);
     context.go(_routes[i]);
   }
 
@@ -135,14 +150,44 @@ class _MainShellState extends State<MainShell> {
                               behavior: HitTestBehavior.opaque,
                               onTap: () => _onTab(context, i, routeIndex),
                               child: Center(
-                                child: AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 220),
-                                  child: Icon(
-                                    selected ? ic.active : ic.idle,
-                                    key: ValueKey(selected),
-                                    color: selected ? AppColors.bg : AppColors.label3,
-                                    size: 22,
-                                  ),
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    AnimatedSwitcher(
+                                      duration: const Duration(milliseconds: 220),
+                                      child: Icon(
+                                        selected ? ic.active : ic.idle,
+                                        key: ValueKey(selected),
+                                        color: selected ? AppColors.bg : AppColors.label3,
+                                        size: 22,
+                                      ),
+                                    ),
+                                    // Nudge badge — profile tab only
+                                    if (i == 2 && _nudgeBadge > 0)
+                                      Positioned(
+                                        top: -4, right: -4,
+                                        child: Container(
+                                          width: 10, height: 10,
+                                          decoration: BoxDecoration(
+                                            color: AppColors.bg,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: selected ? AppColors.label : AppColors.bg2,
+                                              width: 1.5,
+                                            ),
+                                          ),
+                                          child: Center(
+                                            child: Container(
+                                              width: 5, height: 5,
+                                              decoration: BoxDecoration(
+                                                color: AppColors.label,
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             ),

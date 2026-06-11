@@ -13,6 +13,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   List<Map<String, dynamic>> _friendships = [];
   List<Map<String, dynamic>> _challenges  = [];
   List<Map<String, dynamic>> _suggestions = [];
+  List<Map<String, dynamic>> _nudges      = [];
   bool _loading = true;
 
   String get _myId => Supabase.instance.client.auth.currentUser?.id ?? '';
@@ -22,12 +23,21 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final fs   = await SupabaseService.getFriendships();
-    final cs   = await SupabaseService.getChallenges();
-    final sug  = await SupabaseService.getFriendSuggestions(limit: 6);
+    final results = await Future.wait([
+      SupabaseService.getFriendships(),
+      SupabaseService.getChallenges(),
+      SupabaseService.getFriendSuggestions(limit: 6),
+      SupabaseService.getNudges(),
+    ]);
+    // Mark nudges seen after fetching so the badge on the shell can clear.
+    await SupabaseService.markNudgesSeen();
     if (mounted) {
       setState(() {
-        _friendships = fs; _challenges = cs; _suggestions = sug; _loading = false;
+        _friendships = results[0];
+        _challenges  = results[1];
+        _suggestions = results[2];
+        _nudges      = results[3];
+        _loading     = false;
       });
     }
   }
@@ -199,6 +209,16 @@ class _FriendsScreenState extends State<FriendsScreen> {
                               fontWeight: FontWeight.w500),
                         ),
                       ),
+
+                      // ── Nudge inbox ──────────────────────────────────
+                      if (_nudges.isNotEmpty) ...[
+                        _sectionLabel('Nudges', badge: _nudges.where((n) => n['seen'] == false).length),
+                        const SizedBox(height: 10),
+                        _card(children: _nudges
+                            .mapIndexed((i, n) => _nudgeTile(n, i, _nudges.length))
+                            .toList()),
+                        const SizedBox(height: 22),
+                      ],
 
                       if (_incoming.isNotEmpty) ...[
                         _sectionLabel('Requests', badge: _incoming.length),
@@ -470,6 +490,59 @@ class _FriendsScreenState extends State<FriendsScreen> {
         ]),
       ),
     );
+  }
+
+  Widget _nudgeTile(Map<String, dynamic> n, int i, int total) {
+    final from = n['from'] as Map?;
+    final un   = from?['username'] as String?;
+    final em   = from?['email'] as String? ?? '';
+    final handle = (un != null && un.isNotEmpty) ? '@$un' : em;
+    final msg  = (n['message'] as String?)?.isNotEmpty == true
+        ? n['message'] as String
+        : 'Get moving on the challenge!';
+    final raw  = n['created_at'] as String?;
+    final when = raw != null ? _timeAgo(DateTime.parse(raw).toLocal()) : '';
+    final unseen = n['seen'] == false;
+
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 8, height: 8, margin: const EdgeInsets.only(top: 5, right: 12),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: unseen ? AppColors.label : Colors.transparent,
+            ),
+          ),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            RichText(text: TextSpan(
+              style: TextStyle(fontSize: 14, color: AppColors.label, height: 1.4),
+              children: [
+                TextSpan(text: handle,
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+                const TextSpan(text: ' nudged you'),
+              ],
+            )),
+            const SizedBox(height: 3),
+            Text(msg,
+              style: TextStyle(fontSize: 13, color: AppColors.label3),
+              maxLines: 2, overflow: TextOverflow.ellipsis),
+          ])),
+          const SizedBox(width: 10),
+          Text(when, style: TextStyle(fontSize: 12, color: AppColors.label3)),
+        ]),
+      ),
+      if (i < total - 1) _hairline(),
+    ]);
+  }
+
+  String _timeAgo(DateTime d) {
+    final diff = DateTime.now().difference(d);
+    if (diff.inMinutes < 1)  return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24)   return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   Widget _sentTile(Map<String, dynamic> f, int i, int total) {
