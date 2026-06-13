@@ -226,6 +226,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           setState(() => _deviceCals = v);
                         },
                       ),
+                      if (_deviceCals) ...[
+                        _divider(),
+                        _row(
+                          icon: Icons.checklist_rounded,
+                          title: 'Choose calendars',
+                          onTap: _pickCalendars,
+                        ),
+                      ],
                     ]),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
@@ -521,6 +529,114 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       const SizedBox(height: 8),
     ])),
   );
+
+  // Per-calendar visibility chooser — scrollable list of every device
+  // calendar with a toggle each. Newly-synced calendars default to shown.
+  Future<void> _pickCalendars() async {
+    final cals = await DeviceCalendarService.allCalendars();
+    if (!mounted) return;
+    if (cals.isEmpty) {
+      _snack('No calendars found on this device');
+      return;
+    }
+    // Local mutable copy so toggles feel instant; each flip persists.
+    final hidden = DeviceCalendarService.hiddenCalendarIds();
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, ss) => DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.4,
+          maxChildSize: 0.92,
+          expand: false,
+          builder: (ctx, scrollCtrl) => Column(children: [
+            const SizedBox(height: 12),
+            Container(
+                width: 40, height: 5,
+                decoration: BoxDecoration(
+                    color: AppColors.separator,
+                    borderRadius: BorderRadius.circular(3))),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 6),
+              child: Row(children: [
+                Text('Choose calendars',
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.label,
+                        letterSpacing: -0.5)),
+                const Spacer(),
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text('Done',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.label))),
+              ]),
+            ),
+            Expanded(
+              child: ListView.separated(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.fromLTRB(24, 6, 24, 32),
+                itemCount: cals.length,
+                separatorBuilder: (_, _) =>
+                    Container(height: 0.5, color: AppColors.separator),
+                itemBuilder: (_, i) {
+                  final c = cals[i];
+                  final visible = !hidden.contains(c.id);
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(children: [
+                      Icon(Icons.calendar_month_outlined,
+                          size: 20, color: AppColors.label2),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(c.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                      color: AppColors.label)),
+                              if (c.isReadOnly)
+                                Text('Read-only',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.label3)),
+                            ]),
+                      ),
+                      Switch.adaptive(
+                        value: visible,
+                        onChanged: (v) async {
+                          ss(() {
+                            if (v) {
+                              hidden.remove(c.id);
+                            } else {
+                              hidden.add(c.id);
+                            }
+                          });
+                          await DeviceCalendarService.setCalendarHidden(
+                              c.id, !v);
+                        },
+                      ),
+                    ]),
+                  );
+                },
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
 
   void _pickVisibility() => showModalBottomSheet(
     context: context,

@@ -104,17 +104,57 @@ class _CalendarScreenState extends State<CalendarScreen> {
     });
   }
 
-  void _handleScaleUpdate(ScaleUpdateDetails d) {
+  // ── Pinch-zoom (Apple-Calendar feel) ───────────────────────────────────────
+  // Live finger tracking drives a damped scale on the whole grid; on release
+  // we either commit to the next/prev zoom level (which the AnimatedSwitcher
+  // crossfades with a scale) or spring back to 1.0. No abrupt jumps mid-pinch.
+  double _pinch = 1.0;
+  bool _pinching = false;
+
+  // Zoom granularity: year ⇄ month ⇄ week.
+  _ViewMode get _zoomedIn => switch (_view) {
+        _ViewMode.year  => _ViewMode.month,
+        _ViewMode.month => _ViewMode.week,
+        _ViewMode.week  => _ViewMode.week,
+      };
+  _ViewMode get _zoomedOut => switch (_view) {
+        _ViewMode.week  => _ViewMode.month,
+        _ViewMode.month => _ViewMode.year,
+        _ViewMode.year  => _ViewMode.year,
+      };
+
+  // Damped, rubber-banded scale shown while the fingers are down.
+  double get _visualScale {
+    if (!_pinching) return 1.0;
+    final damped = 1 + (_pinch - 1) * 0.45;
+    return damped.clamp(0.80, 1.20);
+  }
+
+  void _onScaleStart(ScaleStartDetails d) {
     if (d.pointerCount < 2) return;
-    if (d.scale < 0.72 && _view == _ViewMode.month) {
-      setState(() => _view = _ViewMode.year);
-    } else if (d.scale > 1.35 && _view == _ViewMode.year) {
-      setState(() => _view = _ViewMode.month);
-    } else if (d.scale > 1.35 && _view == _ViewMode.month) {
-      setState(() => _view = _ViewMode.week);
-    } else if (d.scale < 0.72 && _view == _ViewMode.week) {
-      setState(() => _view = _ViewMode.month);
-    }
+    setState(() {
+      _pinching = true;
+      _pinch = 1.0;
+    });
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails d) {
+    if (d.pointerCount < 2) return;
+    setState(() => _pinch = d.scale);
+  }
+
+  void _onScaleEnd(ScaleEndDetails d) {
+    if (!_pinching) return;
+    final s = _pinch;
+    setState(() {
+      if (s < 0.80) {
+        _view = _zoomedOut;
+      } else if (s > 1.22) {
+        _view = _zoomedIn;
+      }
+      _pinching = false;
+      _pinch = 1.0;
+    });
   }
 
   @override
@@ -123,7 +163,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
       backgroundColor: AppColors.bg,
       body: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onScaleUpdate: _handleScaleUpdate,
+        onScaleStart: _onScaleStart,
+        onScaleUpdate: _onScaleUpdate,
+        onScaleEnd: _onScaleEnd,
         child: Column(children: [
           // ── Top bar ────────────────────────────────────────
           SafeArea(
@@ -208,22 +250,36 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
           // ── View body ──────────────────────────────────────
           Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              transitionBuilder: (child, anim) => FadeTransition(
-                opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
-                child: child,
-              ),
-              child: KeyedSubtree(
-                key: ValueKey(_view),
-                child: switch (_view) {
-                  _ViewMode.year => _YearView(
-                    onMonthTap: (_) =>
-                        setState(() => _view = _ViewMode.month),
+            child: AnimatedScale(
+              // Tracks the fingers instantly while pinching, then springs
+              // back to rest — this is what makes the zoom feel continuous.
+              scale: _visualScale,
+              duration: _pinching
+                  ? Duration.zero
+                  : const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (child, anim) => FadeTransition(
+                  opacity: anim,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.92, end: 1.0).animate(anim),
+                    child: child,
                   ),
-                  _ViewMode.month => _buildMonthView(),
-                  _ViewMode.week  => _buildWeekView(),
-                },
+                ),
+                child: KeyedSubtree(
+                  key: ValueKey(_view),
+                  child: switch (_view) {
+                    _ViewMode.year => _YearView(
+                      onMonthTap: (_) =>
+                          setState(() => _view = _ViewMode.month),
+                    ),
+                    _ViewMode.month => _buildMonthView(),
+                    _ViewMode.week  => _buildWeekView(),
+                  },
+                ),
               ),
             ),
           ),
@@ -1507,7 +1563,10 @@ class _AddCalEventSheetState extends State<_AddCalEventSheet> {
               24, 20, 24, MediaQuery.of(context).viewInsets.bottom + 32),
           child: SafeArea(
             top: false,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
+            // Scrollable: with several writable calendars (or the keyboard up)
+            // the picker used to overflow and you couldn't reach the lower rows.
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
               Container(
                   width: 40, height: 5,
                   decoration: BoxDecoration(
@@ -1649,6 +1708,7 @@ class _AddCalEventSheetState extends State<_AddCalEventSheet> {
                 ),
               ],
             ]),
+            ),
           ),
         ),
       ),

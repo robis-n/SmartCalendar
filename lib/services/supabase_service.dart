@@ -60,6 +60,48 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(res);
   }
 
+  /// Tasks the user never completed and whose time has already passed.
+  /// Powers the "unfinished" button and the home fallback shown when today
+  /// is empty. Newest-overdue first so the most recent slip is on top.
+  static Future<List<Map<String, dynamic>>> getUndoneTasks({int limit = 60}) async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return [];
+    final now = tsToDb(DateTime.now());
+    final res = await client
+        .from('tasks')
+        .select()
+        .eq('user_id', userId)
+        .neq('status', 'verified')
+        .lt('scheduled_time', now)
+        .order('scheduled_time', ascending: false)
+        .limit(limit);
+    return List<Map<String, dynamic>>.from(res);
+  }
+
+  /// Which days of the given week (Mon-anchored) carry at least one task.
+  /// Returns day-offsets 0..6 (Mon=0) for the home week strip's dots.
+  static Future<Set<int>> getTaskDayOffsetsForWeek(DateTime weekStart) async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return {};
+    final monday = DateTime(weekStart.year, weekStart.month, weekStart.day);
+    final start = tsToDb(monday);
+    final end = tsToDb(monday.add(const Duration(days: 7)));
+    final res = await client
+        .from('tasks')
+        .select('scheduled_time')
+        .eq('user_id', userId)
+        .gte('scheduled_time', start)
+        .lt('scheduled_time', end);
+    final offsets = <int>{};
+    for (final r in res) {
+      final d = tsTryFromDb(r['scheduled_time'] as String?);
+      if (d == null) continue;
+      final off = DateTime(d.year, d.month, d.day).difference(monday).inDays;
+      if (off >= 0 && off < 7) offsets.add(off);
+    }
+    return offsets;
+  }
+
   static Future<Map<String, dynamic>?> getTaskById(String taskId) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return null;

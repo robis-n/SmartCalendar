@@ -27,11 +27,28 @@ class WritableCalendar {
   const WritableCalendar({required this.id, required this.name});
 }
 
+/// One device calendar, surfaced in the visibility chooser.
+class DeviceCalendarInfo {
+  final String id;
+  final String name;
+  final bool isReadOnly;
+  final bool visible;
+  const DeviceCalendarInfo({
+    required this.id,
+    required this.name,
+    required this.isReadOnly,
+    required this.visible,
+  });
+}
+
 /// Reads (and optionally writes) the phone's native calendars via
 /// EventKit (iOS) / CalendarProvider (Android). On iOS this covers
 /// Apple Calendar *and* any Google accounts synced to the phone.
 class DeviceCalendarService {
   static const String kShowDeviceCalendarsKey = 'show_device_calendars';
+  // IDs the user has explicitly hidden. Anything *not* in here is shown,
+  // so newly-synced calendars appear by default (matches Apple Calendar).
+  static const String kHiddenCalendarsKey = 'hidden_calendar_ids';
   static final _plugin = DeviceCalendarPlugin();
 
   static bool get enabled =>
@@ -41,6 +58,47 @@ class DeviceCalendarService {
 
   static Future<void> setEnabled(bool v) async =>
       Hive.box(kSettingsBox).put(kShowDeviceCalendarsKey, v);
+
+  /// Calendar IDs the user has switched off in the visibility chooser.
+  static Set<String> hiddenCalendarIds() {
+    final raw = Hive.box(kSettingsBox)
+        .get(kHiddenCalendarsKey, defaultValue: const <String>[]) as List;
+    return raw.map((e) => e.toString()).toSet();
+  }
+
+  static Future<void> setCalendarHidden(String id, bool hidden) async {
+    final set = hiddenCalendarIds();
+    if (hidden) {
+      set.add(id);
+    } else {
+      set.remove(id);
+    }
+    await Hive.box(kSettingsBox).put(kHiddenCalendarsKey, set.toList());
+  }
+
+  /// Every calendar on the device, each flagged with its current visibility,
+  /// for the "Choose calendars" chooser. Requires permission.
+  static Future<List<DeviceCalendarInfo>> allCalendars() async {
+    if (kIsWeb) return [];
+    try {
+      final granted = await ensurePermission();
+      if (!granted) return [];
+      final cals = await _plugin.retrieveCalendars();
+      if (!cals.isSuccess || cals.data == null) return [];
+      final hidden = hiddenCalendarIds();
+      return cals.data!
+          .where((c) => c.id != null)
+          .map((c) => DeviceCalendarInfo(
+                id: c.id!,
+                name: c.name ?? 'Calendar',
+                isReadOnly: c.isReadOnly ?? false,
+                visible: !hidden.contains(c.id),
+              ))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
 
   static Future<bool> ensurePermission() async {
     if (kIsWeb) return false;
@@ -76,9 +134,10 @@ class DeviceCalendarService {
     try {
       final cals = await _plugin.retrieveCalendars();
       if (!cals.isSuccess || cals.data == null) return [];
+      final hidden = hiddenCalendarIds();
       final out = <DeviceEvent>[];
       for (final cal in cals.data!) {
-        if (cal.id == null) continue;
+        if (cal.id == null || hidden.contains(cal.id)) continue;
         final res = await _plugin.retrieveEvents(
           cal.id,
           RetrieveEventsParams(startDate: start, endDate: end),

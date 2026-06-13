@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/time_utils.dart';
@@ -19,8 +20,15 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   List<Map<String, dynamic>> _tasks  = [];
   List<Map<String, dynamic>> _shared = [];
+  List<Map<String, dynamic>> _undone = []; // overdue + never completed
+  Set<int> _weekTaskDays = {};             // Mon=0 offsets with ≥1 task
   String _tier    = AppConstants.tierFree;
   bool   _loading = true;
+
+  static DateTime get _mondayOfThisWeek {
+    final n = DateTime.now();
+    return DateTime(n.year, n.month, n.day).subtract(Duration(days: n.weekday - 1));
+  }
 
   // ── Live clock ─────────────────────────────────────────
   String _clockTime = '';
@@ -66,6 +74,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     final shared   = await SupabaseService.getSharedTasksForDate(DateTime.now());
     final profile  = await SupabaseService.getUserProfile();
     final upcoming = await SupabaseService.getUpcomingPendingTasks();
+    final undone   = await SupabaseService.getUndoneTasks();
+    final weekDays = await SupabaseService.getTaskDayOffsetsForWeek(_mondayOfThisWeek);
 
     // Respect the Settings toggle: re-arming while disabled would undo it.
     final prefs = Map<String, dynamic>.from((profile?['preferences'] as Map?) ?? {});
@@ -87,10 +97,12 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     if (mounted) {
       setState(() {
-        _tasks   = tasks;
-        _shared  = shared;
-        _tier    = profile?['subscription_tier'] ?? AppConstants.tierFree;
-        _loading = false;
+        _tasks        = tasks;
+        _shared       = shared;
+        _undone       = undone;
+        _weekTaskDays = weekDays;
+        _tier         = profile?['subscription_tier'] ?? AppConstants.tierFree;
+        _loading      = false;
       });
     }
   }
@@ -107,6 +119,28 @@ class _DashboardScreenState extends State<DashboardScreen>
     final r = await Navigator.of(context, rootNavigator: true)
         .push(MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: task['id'])));
     if (r != null && mounted) _load();
+  }
+
+  // Unfinished / overdue tasks — the left-hand mirror of the + button.
+  Future<void> _openUndone() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useRootNavigator: true,
+      builder: (_) => _UndoneSheet(
+        tasks: _undone,
+        onOpen: (t) async {
+          final r = await Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(
+                  builder: (_) => TaskDetailScreen(taskId: t['id'])));
+          if (r != null && mounted) {
+            Navigator.of(context, rootNavigator: true).pop(); // close sheet
+            _load();
+          }
+        },
+      ),
+    );
   }
 
   Future<void> _openVerification(Map<String, dynamic> task) async {
@@ -154,9 +188,26 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return Scaffold(
       backgroundColor: AppColors.bg,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 92),
-        child: _InkFAB(onTap: _openAddTask),
+        padding: const EdgeInsets.only(bottom: 92, left: 16, right: 16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Left mirror of + : unfinished tasks. Hidden when nothing is
+            // overdue so the home stays calm. Badge shows the count.
+            if (_undone.isNotEmpty)
+              _InkFAB(
+                icon: Icons.history_rounded,
+                filled: false,
+                badge: _undone.length,
+                onTap: _openUndone,
+              )
+            else
+              const SizedBox(width: 60),
+            _InkFAB(icon: Icons.add_rounded, onTap: _openAddTask),
+          ],
+        ),
       ),
       body: RefreshIndicator(
         color: AppColors.label,
@@ -213,8 +264,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                   ),
 
+                  // ── This week strip (above the tasks) ───────────
+                  SliverToBoxAdapter(
+                    child: _WeekStrip(
+                      monday: _mondayOfThisWeek,
+                      taskDayOffsets: _weekTaskDays,
+                      onTapDay: (_) => context.go('/calendar'),
+                    ),
+                  ),
+
                   // ── Task list / shared / empty ──────────────────
-                  if (_tasks.isEmpty && _shared.isEmpty)
+                  if (_tasks.isEmpty && _shared.isEmpty && _undone.isEmpty)
                     const SliverFillRemaining(
                       hasScrollBody: false,
                       child: _EmptyState(),
@@ -233,6 +293,28 @@ class _DashboardScreenState extends State<DashboardScreen>
                               onCheck: () => _openVerification(_tasks[i]),
                             ),
                             childCount: _tasks.length,
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    // Nothing scheduled today → surface what's still
+                    // unfinished from earlier so the day doesn't feel idle.
+                    if (_tasks.isEmpty && _shared.isEmpty &&
+                        _undone.isNotEmpty) ...[
+                      SliverToBoxAdapter(child: _sectionRule('UNFINISHED')),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (ctx, i) => _TaskRow(
+                              task: _undone[i],
+                              index: i,
+                              overdue: true,
+                              onTap:   () => _openDetail(_undone[i]),
+                              onCheck: () => _openVerification(_undone[i]),
+                            ),
+                            childCount: _undone.length,
                           ),
                         ),
                       ),
@@ -342,18 +424,21 @@ class _BigStat extends StatelessWidget {
 class _TaskRow extends StatelessWidget {
   final Map<String, dynamic> task;
   final int index;
+  final bool overdue; // from a past day — show the date, not just the time
   final VoidCallback onTap;
   final VoidCallback onCheck;
   const _TaskRow({required this.task, required this.index,
-      required this.onTap, required this.onCheck});
+      required this.onTap, required this.onCheck, this.overdue = false});
 
   @override
   Widget build(BuildContext context) {
     final status   = task['status'] as String? ?? 'pending';
     final isDone   = status == 'verified';
     final isFailed = status == 'failed';
-    final time     = task['scheduled_time'] != null
-        ? _fmtTime(tsFromDb(task['scheduled_time']))
+    final when     = task['scheduled_time'] != null
+        ? (overdue
+            ? _fmtDate(tsFromDb(task['scheduled_time']))
+            : _fmtTime(tsFromDb(task['scheduled_time'])))
         : null;
 
     return GestureDetector(
@@ -381,7 +466,7 @@ class _TaskRow extends StatelessWidget {
                 Text(
                   isDone ? 'Completed'
                       : isFailed ? 'Missed'
-                      : time ?? 'Anytime',
+                      : when ?? 'Anytime',
                   style: TextStyle(
                     fontSize: 14,
                     color: AppColors.label3,
@@ -428,6 +513,89 @@ class _TaskRow extends StatelessWidget {
     final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
     return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
   }
+
+  String _fmtDate(DateTime d) {
+    const wd = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${wd[d.weekday - 1]}, ${mo[d.month - 1]} ${d.day} · ${_fmtTime(d)}';
+  }
+}
+
+// ── This-week strip ───────────────────────────────────────────────────────────
+
+class _WeekStrip extends StatelessWidget {
+  final DateTime monday;             // Monday of the current week
+  final Set<int> taskDayOffsets;     // 0..6 (Mon=0) with ≥1 task
+  final ValueChanged<DateTime> onTapDay;
+  const _WeekStrip({
+    required this.monday,
+    required this.taskDayOffsets,
+    required this.onTapDay,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    bool isToday(DateTime d) =>
+        d.year == today.year && d.month == today.month && d.day == today.day;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+      child: Row(
+        children: List.generate(7, (i) {
+          final day     = monday.add(Duration(days: i));
+          final selected = isToday(day);
+          final hasTask  = taskDayOffsets.contains(i);
+          return Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onTapDay(day),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Column(children: [
+                  Text(const ['M','T','W','T','F','S','S'][i],
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.label3,
+                          letterSpacing: 0.5)),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected ? AppColors.label : Colors.transparent,
+                      border: selected
+                          ? null
+                          : Border.all(color: AppColors.separator, width: 1),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text('${day.day}',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight:
+                                selected ? FontWeight.w800 : FontWeight.w600,
+                            color:
+                                selected ? AppColors.bg : AppColors.label)),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 5, height: 5,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: hasTask
+                          ? (selected ? AppColors.label : AppColors.label2)
+                          : Colors.transparent,
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
 }
 
 // ── Empty state ───────────────────────────────────────────────────────────────
@@ -457,16 +625,26 @@ class _EmptyState extends StatelessWidget {
 
 class _InkFAB extends StatelessWidget {
   final VoidCallback onTap;
-  const _InkFAB({required this.onTap});
+  final IconData icon;
+  final bool filled;   // filled ink (primary +) vs. glassy outline (secondary)
+  final int badge;     // small count chip; 0 = none
+  const _InkFAB({
+    required this.onTap,
+    this.icon = Icons.add_rounded,
+    this.filled = true,
+    this.badge = 0,
+  });
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
+  Widget build(BuildContext context) {
+    final fab = Container(
       width: 60, height: 60,
       decoration: BoxDecoration(
-        color: AppColors.label,
+        color: filled ? AppColors.label : AppColors.card,
         shape: BoxShape.circle,
+        border: filled
+            ? null
+            : Border.all(color: AppColors.separator, width: 1),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: AppColors.isDark ? 0.5 : 0.18),
@@ -475,7 +653,164 @@ class _InkFAB extends StatelessWidget {
           ),
         ],
       ),
-      child: Icon(Icons.add_rounded, color: AppColors.bg, size: 30),
-    ),
-  );
+      child: Icon(icon, color: filled ? AppColors.bg : AppColors.label, size: filled ? 30 : 26),
+    );
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: badge > 0
+          ? Stack(clipBehavior: Clip.none, children: [
+              fab,
+              Positioned(
+                top: -2, right: -2,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 22),
+                  height: 22,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.label,
+                    borderRadius: BorderRadius.circular(11),
+                    border: Border.all(color: AppColors.bg, width: 2),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text('${badge > 99 ? '99+' : badge}',
+                      style: TextStyle(
+                          color: AppColors.bg,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ])
+          : fab,
+    );
+  }
+}
+
+// ── Unfinished-tasks sheet ────────────────────────────────────────────────────
+
+class _UndoneSheet extends StatelessWidget {
+  final List<Map<String, dynamic>> tasks;
+  final ValueChanged<Map<String, dynamic>> onOpen;
+  const _UndoneSheet({required this.tasks, required this.onOpen});
+
+  String _fmt(DateTime d) {
+    const wd = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final t = '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+    return '${wd[d.weekday - 1]}, ${mo[d.month - 1]} ${d.day} · $t';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      expand: false,
+      snap: true,
+      snapSizes: const [0.6, 0.92],
+      builder: (ctx, scrollCtrl) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: Container(
+          color: AppColors.card,
+          child: Column(children: [
+            const SizedBox(height: 12),
+            Container(
+                width: 40, height: 5,
+                decoration: BoxDecoration(
+                    color: AppColors.separator,
+                    borderRadius: BorderRadius.circular(3))),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+              child: Row(children: [
+                Text('Unfinished',
+                    style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.label,
+                        letterSpacing: -0.8)),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.label.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text('${tasks.length}',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.label2)),
+                ),
+              ]),
+            ),
+            Expanded(
+              child: ListView.separated(
+                controller: scrollCtrl,
+                padding: EdgeInsets.fromLTRB(24, 4, 24, mq.padding.bottom + 24),
+                itemCount: tasks.length,
+                separatorBuilder: (_, _) =>
+                    Container(height: 0.5, color: AppColors.separator),
+                itemBuilder: (_, i) {
+                  final t = tasks[i];
+                  final failed = (t['status'] as String?) == 'failed';
+                  final sched = tsTryFromDb(t['scheduled_time'] as String?);
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => onOpen(t),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Row(children: [
+                        Container(
+                          width: 30, height: 30,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                                color: AppColors.separator, width: 1.5),
+                          ),
+                          child: Icon(
+                              failed
+                                  ? Icons.close_rounded
+                                  : Icons.priority_high_rounded,
+                              size: 16,
+                              color: AppColors.label3),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(t['title'] as String? ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.label,
+                                        letterSpacing: -0.3)),
+                                const SizedBox(height: 3),
+                                Text(
+                                    sched != null
+                                        ? _fmt(sched)
+                                        : (failed ? 'Missed' : 'Overdue'),
+                                    style: TextStyle(
+                                        fontSize: 13, color: AppColors.label3)),
+                              ]),
+                        ),
+                        Icon(Icons.chevron_right_rounded,
+                            size: 20, color: AppColors.label3),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
 }
