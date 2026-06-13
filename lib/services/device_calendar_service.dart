@@ -1,6 +1,7 @@
 import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:timezone/timezone.dart' as tz;
 import '../core/theme/theme_provider.dart';
 
 /// A device-calendar event reduced to what the UI needs.
@@ -19,17 +20,20 @@ class DeviceEvent {
   });
 }
 
-/// Reads the phone's calendars via EventKit (iOS) / CalendarProvider
-/// (Android). On iOS this includes Apple Calendar *and* any Google accounts
-/// the user has synced to the phone — one integration covers both.
-///
-/// Read-only: tasks never leak into the user's external calendars.
+/// A writable calendar the user can save events into.
+class WritableCalendar {
+  final String id;
+  final String name;
+  const WritableCalendar({required this.id, required this.name});
+}
+
+/// Reads (and optionally writes) the phone's native calendars via
+/// EventKit (iOS) / CalendarProvider (Android). On iOS this covers
+/// Apple Calendar *and* any Google accounts synced to the phone.
 class DeviceCalendarService {
   static const String kShowDeviceCalendarsKey = 'show_device_calendars';
-
   static final _plugin = DeviceCalendarPlugin();
 
-  /// User-facing toggle, persisted in the settings box.
   static bool get enabled =>
       !kIsWeb &&
       (Hive.box(kSettingsBox).get(kShowDeviceCalendarsKey, defaultValue: false)
@@ -38,7 +42,6 @@ class DeviceCalendarService {
   static Future<void> setEnabled(bool v) async =>
       Hive.box(kSettingsBox).put(kShowDeviceCalendarsKey, v);
 
-  /// Ask for calendar permission. Returns true when granted.
   static Future<bool> ensurePermission() async {
     if (kIsWeb) return false;
     try {
@@ -51,36 +54,46 @@ class DeviceCalendarService {
     }
   }
 
-  /// All device events overlapping [day] (device-local), across every
-  /// calendar on the phone, sorted by start time.
+  // ── Read ─────────────────────────────────────────────────────────────────
+
+  /// All events for a single day, sorted by start time.
   static Future<List<DeviceEvent>> eventsForDay(DateTime day) async {
+    final start = DateTime(day.year, day.month, day.day);
+    final end   = start.add(const Duration(days: 1));
+    return _eventsForRange(start, end);
+  }
+
+  /// All events across a whole calendar month (used for chip rendering).
+  static Future<List<DeviceEvent>> eventsForMonth(DateTime month) async {
+    final start = DateTime(month.year, month.month, 1);
+    final end   = DateTime(month.year, month.month + 1, 0, 23, 59, 59);
+    return _eventsForRange(start, end);
+  }
+
+  static Future<List<DeviceEvent>> _eventsForRange(
+      DateTime start, DateTime end) async {
     if (kIsWeb || !enabled) return [];
     try {
       final cals = await _plugin.retrieveCalendars();
       if (!cals.isSuccess || cals.data == null) return [];
-
-      final dayStart = DateTime(day.year, day.month, day.day);
-      final dayEnd = dayStart.add(const Duration(days: 1));
       final out = <DeviceEvent>[];
-
       for (final cal in cals.data!) {
         if (cal.id == null) continue;
         final res = await _plugin.retrieveEvents(
           cal.id,
-          RetrieveEventsParams(startDate: dayStart, endDate: dayEnd),
+          RetrieveEventsParams(startDate: start, endDate: end),
         );
         if (!res.isSuccess || res.data == null) continue;
         for (final e in res.data!) {
           out.add(DeviceEvent(
             title: e.title ?? '(untitled)',
             start: e.start?.toLocal(),
-            end: e.end?.toLocal(),
+            end:   e.end?.toLocal(),
             allDay: e.allDay ?? false,
             calendarName: cal.name ?? '',
           ));
         }
       }
-
       out.sort((a, b) {
         if (a.allDay != b.allDay) return a.allDay ? -1 : 1;
         return (a.start ?? DateTime(0)).compareTo(b.start ?? DateTime(0));
@@ -88,6 +101,48 @@ class DeviceCalendarService {
       return out;
     } catch (_) {
       return [];
+    }
+  }
+
+  // ── Write ────────────────────────────────────────────────────────────────
+
+  /// Non-read-only calendars the user can write events into.
+  static Future<List<WritableCalendar>> writableCalendars() async {
+    if (kIsWeb) return [];
+    try {
+      final granted = await ensurePermission();
+      if (!granted) return [];
+      final cals = await _plugin.retrieveCalendars();
+      if (!cals.isSuccess || cals.data == null) return [];
+      return cals.data!
+          .where((c) => c.id != null && !(c.isReadOnly ?? true))
+          .map((c) => WritableCalendar(id: c.id!, name: c.name ?? 'Calendar'))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Creates an event in [calendarId]. Returns the new event ID or null.
+  static Future<String?> createEvent({
+    required String calendarId,
+    required String title,
+    required DateTime start,
+    required DateTime end,
+    String? description,
+  }) async {
+    if (kIsWeb) return null;
+    try {
+      final event = Event(calendarId)
+        ..title = title
+        ..start = tz.TZDateTime.from(start, tz.local)
+        ..end   = tz.TZDateTime.from(end, tz.local)
+        ..description = description;
+      final result = await _plugin.createOrUpdateEvent(event);
+      if (result == null || !result.isSuccess) return null;
+      return result.data;
+    } catch (_) {
+      return null;
     }
   }
 }

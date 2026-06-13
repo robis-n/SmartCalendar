@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/time_utils.dart';
+import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 
@@ -19,6 +20,9 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   late DateTime _deadline;
   String _priority = 'medium';
   bool   _saving   = false;
+  bool   _syncCal  = false;
+  String? _syncCalId;
+  List<WritableCalendar> _writableCals = [];
 
   List<Map<String, dynamic>> _friends = [];
   final Set<String> _collab = {};
@@ -31,11 +35,22 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         ? DateTime(d.year, d.month, d.day, 9, 0)
         : DateTime.now().add(const Duration(hours: 1));
     _loadFriends();
+    _loadCalendars();
   }
 
   Future<void> _loadFriends() async {
     final f = await SupabaseService.getAcceptedFriends();
     if (mounted) setState(() => _friends = f);
+  }
+
+  Future<void> _loadCalendars() async {
+    final cals = await DeviceCalendarService.writableCalendars();
+    if (mounted) {
+      setState(() {
+        _writableCals = cals;
+        if (cals.isNotEmpty) { _syncCalId = cals.first.id; }
+      });
+    }
   }
 
   @override
@@ -193,6 +208,16 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       await NotificationService().scheduleTaskNotifications(
           taskId: created['id'], taskTitle: _title.text.trim(), deadline: _deadline,
           priority: _priority);
+      // Optionally mirror the reminder into Apple/Google Calendar.
+      if (_syncCal && _syncCalId != null) {
+        await DeviceCalendarService.createEvent(
+          calendarId: _syncCalId!,
+          title: _title.text.trim(),
+          start: _deadline,
+          end: _deadline.add(const Duration(hours: 1)),
+          description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
+        );
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
@@ -360,6 +385,75 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
             ),
           ),
           const SizedBox(height: 24),
+
+          // Calendar sync (only shown when writable calendars exist)
+          if (_writableCals.isNotEmpty) ...[
+            _sectionLabel('CALENDAR'),
+            const SizedBox(height: 10),
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.separator, width: 1),
+              ),
+              child: Column(children: [
+                GestureDetector(
+                  onTap: () => setState(() => _syncCal = !_syncCal),
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    child: Row(children: [
+                      Icon(Icons.calendar_month_outlined,
+                          size: 20, color: AppColors.label2),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text('Add to Apple / Google Calendar',
+                            style: TextStyle(
+                                fontSize: 15, color: AppColors.label)),
+                      ),
+                      CupertinoSwitch(
+                        value: _syncCal,
+                        onChanged: (v) => setState(() => _syncCal = v),
+                        activeTrackColor: AppColors.label,
+                      ),
+                    ]),
+                  ),
+                ),
+                if (_syncCal && _writableCals.length > 1) ...[
+                  Container(height: 0.5,
+                      color: AppColors.separator,
+                      margin: const EdgeInsets.symmetric(horizontal: 16)),
+                  for (final cal in _writableCals)
+                    GestureDetector(
+                      onTap: () => setState(() => _syncCalId = cal.id),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                        child: Row(children: [
+                          const SizedBox(width: 32),
+                          Expanded(
+                            child: Text(cal.name,
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    color: _syncCalId == cal.id
+                                        ? AppColors.label
+                                        : AppColors.label2,
+                                    fontWeight: _syncCalId == cal.id
+                                        ? FontWeight.w600
+                                        : FontWeight.w400)),
+                          ),
+                          if (_syncCalId == cal.id)
+                            Icon(Icons.check_rounded,
+                                size: 17, color: AppColors.label),
+                        ]),
+                      ),
+                    ),
+                ],
+              ]),
+            ),
+            const SizedBox(height: 24),
+          ],
 
           // Collaborators — quiet, optional
           _sectionLabel('COLLABORATORS'),
