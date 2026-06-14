@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../../services/verification_service.dart';
@@ -88,6 +89,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
       });
     } catch (_) { /* upload failure shouldn't block completion */ }
     await SupabaseService.updateTaskStatus(widget.taskId, 'verified');
+    // Done → remove any synced Apple/Google copies so it only lives in-app
+    // (as completed). Best-effort; never blocks completion.
+    try {
+      final linked = await SupabaseService.linkedCalendarEvents(
+          widget.taskId, clear: true);
+      await DeviceCalendarService.deleteLinkedEvents(linked);
+    } catch (_) {}
     if (mounted) Navigator.of(context).pop(true);
   }
 

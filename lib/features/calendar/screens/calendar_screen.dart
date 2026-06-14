@@ -1,6 +1,5 @@
 import 'dart:math' show max;
 import 'dart:ui';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/time_utils.dart';
@@ -8,6 +7,7 @@ import '../../../services/device_calendar_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../tasks/screens/add_task_screen.dart';
 import '../../tasks/screens/task_detail_screen.dart';
+import 'calendar_event_screen.dart';
 
 // ── View mode ─────────────────────────────────────────────────────────────────
 
@@ -642,38 +642,35 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDone = chip.status == 'verified';
     final base   = onToday ? AppColors.bg : AppColors.label;
-    // Device events carry their calendar's ambient color (Apple-style); tasks
-    // stay monochrome ink so they read as "yours".
-    final ambient = (!chip.isTask && chip.color != null && !onToday)
+    // Clean "dot + label" instead of a filled box — no more gray rectangles.
+    // Reminders use ink; device events use their calendar's ambient colour.
+    final dotColor = (!chip.isTask && chip.color != null)
         ? Color(chip.color!)
-        : null;
-    final bgAlpha = chip.isTask ? 0.14 : 0.07;
+        : base.withValues(alpha: chip.isTask ? 0.9 : 0.55);
 
-    return Container(
-      margin: const EdgeInsets.only(top: 1.5, left: 0.5, right: 0.5),
-      padding: const EdgeInsets.fromLTRB(4, 1.5, 3, 1.5),
-      decoration: BoxDecoration(
-        color: (ambient ?? base).withValues(alpha: bgAlpha),
-        borderRadius: BorderRadius.circular(3),
-        border: ambient != null
-            ? Border(left: BorderSide(color: ambient, width: 2))
-            : null,
-      ),
-      child: Text(
-        chip.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w600,
-          color: ambient != null
-              ? Color.alphaBlend(
-                  ambient.withValues(alpha: 0.85), AppColors.label)
-              : base.withValues(alpha: chip.isTask ? 0.9 : 0.55),
-          decoration: isDone ? TextDecoration.lineThrough : null,
-          decorationColor: base.withValues(alpha: 0.4),
+    return Padding(
+      padding: const EdgeInsets.only(top: 2, left: 2, right: 1),
+      child: Row(mainAxisSize: MainAxisSize.max, children: [
+        Container(
+          width: 5, height: 5,
+          margin: const EdgeInsets.only(right: 3),
+          decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
         ),
-      ),
+        Expanded(
+          child: Text(
+            chip.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              color: base.withValues(alpha: isDone ? 0.4 : 0.85),
+              decoration: isDone ? TextDecoration.lineThrough : null,
+              decorationColor: base.withValues(alpha: 0.4),
+            ),
+          ),
+        ),
+      ]),
     );
   }
 }
@@ -719,7 +716,6 @@ class _WeekTimeline extends StatefulWidget {
 
 class _WeekTimelineState extends State<_WeekTimeline> {
   List<List<_WeekEvent>> _events = List.generate(7, (_) => []);
-  bool _loading = true;
   final _scrollCtrl = ScrollController();
 
   static const double _hourH = 56.0;
@@ -754,7 +750,6 @@ class _WeekTimelineState extends State<_WeekTimeline> {
   }
 
   Future<void> _load() async {
-    if (mounted) setState(() => _loading = true);
     final taskFutures = List.generate(
       7,
       (i) => SupabaseService.getTasksForDate(
@@ -802,10 +797,7 @@ class _WeekTimelineState extends State<_WeekTimeline> {
     }
 
     if (!mounted) return;
-    setState(() {
-      _events = ev;
-      _loading = false;
-    });
+    setState(() => _events = ev);
   }
 
   bool _sameDay(DateTime a, DateTime b) =>
@@ -927,12 +919,10 @@ class _WeekTimelineState extends State<_WeekTimeline> {
         ),
 
       // ── Timed events timeline ──────────────────────────
+      // Always render the hour grid immediately (no full-screen spinner);
+      // event blocks simply appear once the fetch returns — feels instant.
       Expanded(
-        child: _loading
-            ? Center(
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: AppColors.label))
-            : SingleChildScrollView(
+        child: SingleChildScrollView(
                 controller: _scrollCtrl,
                 child: SizedBox(
                   height: totalH,
@@ -1014,9 +1004,7 @@ class _WeekTimelineState extends State<_WeekTimeline> {
 
   Widget _eventBlock(_WeekEvent event, int day, double dayW) {
     final startFrac = event.start.hour + event.start.minute / 60.0;
-    final endFrac   = event.end.hour   + event.end.minute   / 60.0;
     final top    = (startFrac - _startH).clamp(0.0, _endH - _startH.toDouble()) * _hourH + 12;
-    final height = max(22.0, (endFrac - startFrac).clamp(0.0, 4.0) * _hourH);
     final left   = _labelW + day * dayW + 1.5;
     final isDone = event.status == 'verified';
     final ambient = (!event.isTask && event.color != null)
@@ -1024,26 +1012,53 @@ class _WeekTimelineState extends State<_WeekTimeline> {
         : null;
     final accent = ambient ??
         AppColors.label.withValues(alpha: event.isTask ? 0.8 : 0.55);
+    void onTap() => widget.onTapDay(widget.weekStart.add(Duration(days: day)));
 
+    // Reminders are point-in-time: render a compact marker (dot + label), not
+    // a fabricated 1-hour block. Events (with a real end) render as a span.
+    if (event.isTask) {
+      return Positioned(
+        top: top, left: left, width: dayW - 3, height: 20,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Row(children: [
+            Container(
+              width: 6, height: 6,
+              margin: const EdgeInsets.only(right: 3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.label.withValues(alpha: isDone ? 0.35 : 0.9),
+              ),
+            ),
+            Expanded(
+              child: Text(event.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.label.withValues(alpha: isDone ? 0.4 : 0.9),
+                    decoration: isDone ? TextDecoration.lineThrough : null,
+                    decorationColor: AppColors.label3,
+                  )),
+            ),
+          ]),
+        ),
+      );
+    }
+
+    final endFrac = event.end.hour + event.end.minute / 60.0;
+    final height  = max(22.0, (endFrac - startFrac).clamp(0.0, 12.0) * _hourH);
     return Positioned(
       top: top, left: left, width: dayW - 3, height: height,
       child: GestureDetector(
-        onTap: () => widget.onTapDay(
-            widget.weekStart.add(Duration(days: day))),
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.fromLTRB(4, 3, 3, 2),
           decoration: BoxDecoration(
-            color: (ambient ?? AppColors.label)
-                .withValues(alpha: event.isTask ? 0.11 : 0.08),
+            color: (ambient ?? AppColors.label).withValues(alpha: 0.10),
             borderRadius: BorderRadius.circular(4),
-            border: Border(
-              left: BorderSide(
-                color: event.isTask
-                    ? AppColors.label.withValues(alpha: isDone ? 0.3 : 0.8)
-                    : accent,
-                width: 2.5,
-              ),
-            ),
+            border: Border(left: BorderSide(color: accent, width: 2.5)),
           ),
           child: Text(
             event.title,
@@ -1052,11 +1067,7 @@ class _WeekTimelineState extends State<_WeekTimeline> {
             style: TextStyle(
               fontSize: 9.5,
               fontWeight: FontWeight.w600,
-              color: event.isTask
-                  ? AppColors.label.withValues(alpha: isDone ? 0.4 : 0.9)
-                  : AppColors.label2,
-              decoration: isDone ? TextDecoration.lineThrough : null,
-              decorationColor: AppColors.label3,
+              color: AppColors.label2,
             ),
           ),
         ),
@@ -1116,28 +1127,16 @@ class _DaySheetState extends State<_DaySheet> {
   }
 
   Future<void> _addCalendarEvent() async {
-    final wCals = await DeviceCalendarService.writableCalendars();
+    // Full-screen editor (reliable back button + correct insets + clear
+    // Apple/Google target selection). Returns created {cal,ev} links.
+    final created = await Navigator.of(context, rootNavigator: true)
+        .push<List<dynamic>>(MaterialPageRoute(
+            builder: (_) => CalendarEventScreen(day: widget.day)));
     if (!mounted) return;
-    if (wCals.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              'No writable calendars found — enable Apple/Google Calendar in Settings')));
-      return;
+    if (created != null && created.isNotEmpty) {
+      widget.onChanged();
+      await _load();
     }
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      useRootNavigator: true,
-      builder: (_) => _AddCalEventSheet(
-        day: widget.day,
-        calendars: wCals,
-        onSaved: () {
-          widget.onChanged();
-          _load();
-        },
-      ),
-    );
   }
 
   String _fmt(DateTime d) {
@@ -1443,371 +1442,4 @@ class _DevEventRow extends StatelessWidget {
       ]),
     );
   }
-}
-
-// ── Add calendar event sheet ──────────────────────────────────────────────────
-
-class _AddCalEventSheet extends StatefulWidget {
-  final DateTime day;
-  final List<WritableCalendar> calendars;
-  final VoidCallback onSaved;
-  const _AddCalEventSheet({
-    required this.day,
-    required this.calendars,
-    required this.onSaved,
-  });
-  @override
-  State<_AddCalEventSheet> createState() => _AddCalEventSheetState();
-}
-
-class _AddCalEventSheetState extends State<_AddCalEventSheet> {
-  final _titleCtrl = TextEditingController();
-  late DateTime _start;
-  late DateTime _end;
-  late String _calId;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final d = widget.day;
-    _start = DateTime(d.year, d.month, d.day, 9);
-    _end   = DateTime(d.year, d.month, d.day, 10);
-    _calId = widget.calendars.first.id;
-  }
-
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    super.dispose();
-  }
-
-  String _fmtTime(DateTime d) {
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
-  }
-
-  Future<void> _pickTime(bool isStart) async {
-    DateTime temp = isStart ? _start : _end;
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.card,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (ctx) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const SizedBox(height: 12),
-          Container(
-              width: 40, height: 5,
-              decoration: BoxDecoration(
-                  color: AppColors.separator,
-                  borderRadius: BorderRadius.circular(3))),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 12, 4),
-            child: Row(children: [
-              Text(isStart ? 'Start time' : 'End time',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.label)),
-              const Spacer(),
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text('Done',
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.label))),
-            ]),
-          ),
-          SizedBox(
-            height: 200,
-            child: CupertinoTheme(
-              data: CupertinoThemeData(
-                brightness:
-                    AppColors.isDark ? Brightness.dark : Brightness.light,
-              ),
-              child: CupertinoDatePicker(
-                mode: CupertinoDatePickerMode.time,
-                initialDateTime: temp,
-                use24hFormat: false,
-                onDateTimeChanged: (dt) => temp = dt,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-        ]),
-      ),
-    );
-    if (mounted) {
-      final d = widget.day;
-      setState(() {
-        if (isStart) {
-          _start = DateTime(d.year, d.month, d.day, temp.hour, temp.minute);
-          if (_end.isBefore(_start)) {
-            _end = _start.add(const Duration(hours: 1));
-          }
-        } else {
-          _end = DateTime(d.year, d.month, d.day, temp.hour, temp.minute);
-        }
-      });
-    }
-  }
-
-  Future<void> _save() async {
-    if (_titleCtrl.text.trim().isEmpty) return;
-    setState(() => _saving = true);
-    final id = await DeviceCalendarService.createEvent(
-      calendarId: _calId,
-      title: _titleCtrl.text.trim(),
-      start: _start,
-      end:   _end,
-    );
-    if (!mounted) return;
-    if (id != null) {
-      widget.onSaved();
-      Navigator.of(context).pop();
-    } else {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save to calendar')));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-        child: Container(
-          decoration: BoxDecoration(
-            color: AppColors.glass,
-            border: Border(
-                top: BorderSide(color: AppColors.glassBorder, width: 0.8)),
-          ),
-          padding: EdgeInsets.fromLTRB(
-              24, 20, 24, MediaQuery.of(context).viewInsets.bottom + 32),
-          child: SafeArea(
-            top: false,
-            // Scrollable: with several writable calendars (or the keyboard up)
-            // the picker used to overflow and you couldn't reach the lower rows.
-            child: SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(
-                  width: 40, height: 5,
-                  decoration: BoxDecoration(
-                      color: AppColors.separator,
-                      borderRadius: BorderRadius.circular(3))),
-              const SizedBox(height: 20),
-              Row(children: [
-                Expanded(
-                  child: Text('Add Calendar Event',
-                      style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.label,
-                          letterSpacing: -0.6)),
-                ),
-                GestureDetector(
-                  onTap: _saving ? null : _save,
-                  child: _saving
-                      ? SizedBox(
-                          width: 20, height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: AppColors.label))
-                      : Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 9),
-                          decoration: BoxDecoration(
-                              color: _titleCtrl.text.trim().isEmpty
-                                  ? AppColors.label.withValues(alpha: 0.3)
-                                  : AppColors.label,
-                              borderRadius: BorderRadius.circular(22)),
-                          child: Text('Save',
-                              style: TextStyle(
-                                  color: AppColors.bg,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 15)),
-                        ),
-                ),
-              ]),
-              const SizedBox(height: 20),
-
-              // Title field
-              Container(
-                decoration: BoxDecoration(
-                  color: AppColors.card,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.separator, width: 1),
-                ),
-                child: TextField(
-                  controller: _titleCtrl,
-                  autofocus: true,
-                  textCapitalization: TextCapitalization.sentences,
-                  onChanged: (_) => setState(() {}),
-                  style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.label),
-                  decoration: InputDecoration(
-                    hintText: 'Event title',
-                    hintStyle: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.label3),
-                    filled: false,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Time row
-              Row(children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _pickTime(true),
-                    child: _timeChip(Icons.schedule_outlined, _fmtTime(_start)),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text('–',
-                      style: TextStyle(
-                          color: AppColors.label3, fontSize: 16)),
-                ),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => _pickTime(false),
-                    child: _timeChip(Icons.schedule_outlined, _fmtTime(_end)),
-                  ),
-                ),
-              ]),
-
-              // Calendar picker — every writable calendar, with its ambient
-              // colour and which account it belongs to (Apple / Google) so
-              // it's unmistakable where the event lands.
-              if (widget.calendars.length > 1) ...[
-                const SizedBox(height: 14),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('SAVE TO',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.label3,
-                          letterSpacing: 1.5)),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.card,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.separator, width: 1),
-                  ),
-                  child: Column(
-                    children: widget.calendars.map((cal) {
-                      final sel = cal.id == _calId;
-                      final dot = cal.color != null
-                          ? Color(cal.color!)
-                          : AppColors.label2;
-                      final kindLabel = switch (cal.kind) {
-                        'google' => 'Google Calendar',
-                        'apple'  => 'Apple Calendar',
-                        _        => null,
-                      };
-                      return GestureDetector(
-                        onTap: () => setState(() => _calId = cal.id),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                          child: Row(children: [
-                            Icon(Icons.circle, size: 12, color: dot),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Text(cal.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                            fontSize: 15,
-                                            color: sel
-                                                ? AppColors.label
-                                                : AppColors.label2,
-                                            fontWeight: sel
-                                                ? FontWeight.w600
-                                                : FontWeight.w400)),
-                                    if (kindLabel != null)
-                                      Text(kindLabel,
-                                          style: TextStyle(
-                                              fontSize: 12,
-                                              color: AppColors.label3)),
-                                  ]),
-                            ),
-                            if (sel)
-                              Icon(Icons.check_rounded,
-                                  size: 18, color: AppColors.label),
-                          ]),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ] else if (widget.calendars.length == 1) ...[
-                const SizedBox(height: 14),
-                Builder(builder: (_) {
-                  final cal = widget.calendars.first;
-                  final kindLabel = switch (cal.kind) {
-                    'google' => 'Saving to Google Calendar',
-                    'apple'  => 'Saving to Apple Calendar',
-                    _        => 'Saving to ${cal.name}',
-                  };
-                  return Row(children: [
-                    Icon(Icons.circle,
-                        size: 12,
-                        color: cal.color != null
-                            ? Color(cal.color!)
-                            : AppColors.label2),
-                    const SizedBox(width: 10),
-                    Text(kindLabel,
-                        style: TextStyle(
-                            fontSize: 13, color: AppColors.label3)),
-                  ]);
-                }),
-              ],
-            ]),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _timeChip(IconData icon, String label) => Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-        decoration: BoxDecoration(
-          color: AppColors.card,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.separator, width: 1),
-        ),
-        child: Row(children: [
-          Icon(icon, size: 16, color: AppColors.label2),
-          const SizedBox(width: 8),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.label2)),
-        ]),
-      );
 }

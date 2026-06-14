@@ -149,6 +149,19 @@ class SupabaseService {
     }).eq('id', taskId);
   }
 
+  /// Read a task's linked device-calendar events (and optionally clear the
+  /// link). Lets the caller delete the synced Apple/Google copies when a
+  /// reminder is completed.
+  static Future<List<dynamic>> linkedCalendarEvents(String taskId,
+      {bool clear = false}) async {
+    final t = await getTaskById(taskId);
+    final list = List<dynamic>.from((t?['device_events'] as List?) ?? const []);
+    if (clear && list.isNotEmpty) {
+      await client.from('tasks').update({'device_events': []}).eq('id', taskId);
+    }
+    return list;
+  }
+
   static Future<void> deleteTask(String taskId) async {
     // Clear dependents first (FK constraints would otherwise block the delete).
     await client.from('task_verifications').delete().eq('task_id', taskId);

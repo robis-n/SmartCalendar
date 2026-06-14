@@ -71,20 +71,30 @@ class _MainShellState extends State<MainShell> {
       extendBody: true,
       backgroundColor: AppColors.bg,
       body: ClipRect(
-        // Material shared-axis motion: outgoing and incoming screens slide
-        // together with a coordinated fade, mirrored automatically by
-        // `reverse` — correct direction both ways, no hand-rolled offsets.
+        // Explicit directional push: the incoming screen enters from the side
+        // you're moving toward and the outgoing one leaves the opposite way.
+        //   moving right (→ higher tab): new from RIGHT, old exits LEFT
+        //   moving left  (→ lower tab):  new from LEFT,  old exits RIGHT
+        // PageTransitionSwitcher gives each child its own primary (entering)
+        // and secondary (being covered) animation, so the two slide as a pair.
         child: PageTransitionSwitcher(
-          duration: const Duration(milliseconds: 320),
-          reverse: _dir < 0,
-          transitionBuilder: (child, primary, secondary) =>
-              SharedAxisTransition(
-            animation: primary,
-            secondaryAnimation: secondary,
-            transitionType: SharedAxisTransitionType.horizontal,
-            fillColor: Colors.transparent, // no flash over the app bg
-            child: child,
-          ),
+          duration: const Duration(milliseconds: 300),
+          transitionBuilder: (child, primary, secondary) {
+            final dx = _dir.toDouble();
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: Offset(dx, 0), end: Offset.zero,
+              ).animate(CurvedAnimation(
+                  parent: primary, curve: Curves.easeOutCubic)),
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: Offset.zero, end: Offset(-dx, 0),
+                ).animate(CurvedAnimation(
+                    parent: secondary, curve: Curves.easeInCubic)),
+                child: FadeTransition(opacity: primary, child: child),
+              ),
+            );
+          },
           child: KeyedSubtree(
             key: ValueKey(routeIndex),
             // Isolate each tab's painting so the glass-blur nav doesn't force

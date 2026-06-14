@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/time_utils.dart';
+import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../verification/screens/verification_screen.dart';
@@ -124,6 +125,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       ],
     ));
     if (ok != true) return;
+    // Remove any synced Apple/Google copies before the row goes away.
+    final linked = List<dynamic>.from((_task?['device_events'] as List?) ?? const []);
+    await DeviceCalendarService.deleteLinkedEvents(linked);
     await SupabaseService.deleteTask(widget.taskId);
     await NotificationService().cancelTaskNotifications(widget.taskId);
     if (mounted) Navigator.of(context).pop('deleted');

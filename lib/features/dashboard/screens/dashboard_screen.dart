@@ -177,6 +177,24 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   // Tapping a day on Home "zooms in" to that day — a scale+fade reveal
   // showing exactly what's scheduled, with quick add. Reloads on return.
+  // Tasks already loaded for a given day (today list + week agenda), so the
+  // zoom card can paint instantly before its own fetch returns.
+  List<Map<String, dynamic>> _tasksOn(DateTime day) {
+    bool sameDay(DateTime a) =>
+        a.year == day.year && a.month == day.month && a.day == day.day;
+    final src = [..._tasks, ..._week];
+    final seen = <String>{};
+    final out = <Map<String, dynamic>>[];
+    for (final t in src) {
+      final d = tsTryFromDb(t['scheduled_time'] as String?);
+      if (d == null || !sameDay(d)) continue;
+      final id = t['id'] as String?;
+      if (id != null && !seen.add(id)) continue;
+      out.add(t);
+    }
+    return out;
+  }
+
   Future<void> _openDayZoom(DateTime day) async {
     HapticFeedback.selectionClick();
     await showGeneralDialog(
@@ -195,6 +213,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             scale: Tween<double>(begin: 0.86, end: 1.0).animate(curved),
             child: _DayZoomCard(
               day: day,
+              initialTasks: _tasksOn(day),
               onOpenTask: (t) async {
                 final r = await Navigator.of(ctx, rootNavigator: true).push(
                     MaterialPageRoute(
@@ -340,7 +359,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   SliverToBoxAdapter(
                     child: _WeekStrip(
                       monday: _mondayOfThisWeek,
-                      taskDayOffsets: _weekTaskDays,
+                      initialOffsets: _weekTaskDays,
                       onTapDay: _openDayZoom,
                     ),
                   ),
@@ -633,15 +652,57 @@ class _TaskRow extends StatelessWidget {
 
 // ── This-week strip ───────────────────────────────────────────────────────────
 
-class _WeekStrip extends StatelessWidget {
-  final DateTime monday;             // Monday of the current week
-  final Set<int> taskDayOffsets;     // 0..6 (Mon=0) with ≥1 task
+class _WeekStrip extends StatefulWidget {
+  final DateTime monday;             // Monday of the *current* week
+  final Set<int> initialOffsets;     // current week's task-day offsets (seed)
   final ValueChanged<DateTime> onTapDay;
   const _WeekStrip({
     required this.monday,
-    required this.taskDayOffsets,
+    required this.initialOffsets,
     required this.onTapDay,
   });
+
+  @override
+  State<_WeekStrip> createState() => _WeekStripState();
+}
+
+class _WeekStripState extends State<_WeekStrip> {
+  static const int _anchor = 1000; // page 1000 = current week
+  late final PageController _ctrl = PageController(initialPage: _anchor);
+  final Map<int, Set<int>> _cache = {}; // weekDelta -> day offsets
+  int _page = _anchor;
+
+  @override
+  void initState() {
+    super.initState();
+    _cache[0] = widget.initialOffsets; // seed: no fetch flicker for this week
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  DateTime _mondayFor(int page) =>
+      widget.monday.add(Duration(days: (page - _anchor) * 7));
+
+  Future<void> _ensure(int page) async {
+    final k = page - _anchor;
+    if (_cache.containsKey(k)) return;
+    final offs =
+        await SupabaseService.getTaskDayOffsetsForWeek(_mondayFor(page));
+    if (mounted) setState(() => _cache[k] = offs);
+  }
+
+  String _rangeLabel(DateTime monday) {
+    const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final sun = monday.add(const Duration(days: 6));
+    final now = DateTime.now();
+    final isThisWeek = !monday.isAfter(now) && !now.isAfter(sun);
+    if (isThisWeek) return 'This week';
+    if (monday.month == sun.month) {
+      return '${mo[monday.month - 1]} ${monday.day} – ${sun.day}';
+    }
+    return '${mo[monday.month - 1]} ${monday.day} – ${mo[sun.month - 1]} ${sun.day}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -649,62 +710,100 @@ class _WeekStrip extends StatelessWidget {
     bool isToday(DateTime d) =>
         d.year == today.year && d.month == today.month && d.day == today.day;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-      child: Row(
-        children: List.generate(7, (i) {
-          final day     = monday.add(Duration(days: i));
-          final selected = isToday(day);
-          final hasTask  = taskDayOffsets.contains(i);
-          return Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => onTapDay(day),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Column(children: [
-                  Text(const ['M','T','W','T','F','S','S'][i],
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.label3,
-                          letterSpacing: 0.5)),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: selected ? AppColors.label : Colors.transparent,
-                      border: selected
-                          ? null
-                          : Border.all(color: AppColors.separator, width: 1),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text('${day.day}',
-                        style: TextStyle(
-                            fontSize: 15,
-                            fontWeight:
-                                selected ? FontWeight.w800 : FontWeight.w600,
-                            color:
-                                selected ? AppColors.bg : AppColors.label)),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    width: 5, height: 5,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: hasTask
-                          ? (selected ? AppColors.label : AppColors.label2)
-                          : Colors.transparent,
-                    ),
-                  ),
-                ]),
-              ),
-            ),
-          );
-        }),
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
+        child: Row(children: [
+          Text(_rangeLabel(_mondayFor(_page)),
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.label3,
+                  letterSpacing: 1.2)),
+          const Spacer(),
+          Icon(Icons.swipe_outlined, size: 14, color: AppColors.label3),
+        ]),
       ),
-    );
+      SizedBox(
+        height: 78,
+        child: PageView.builder(
+          controller: _ctrl,
+          onPageChanged: (p) {
+            setState(() => _page = p);
+            _ensure(p - 1);
+            _ensure(p + 1);
+          },
+          itemBuilder: (_, page) {
+            _ensure(page);
+            final monday = _mondayFor(page);
+            final offs = _cache[page - _anchor] ?? const <int>{};
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Row(
+                children: List.generate(7, (i) {
+                  final day = monday.add(Duration(days: i));
+                  final selected = isToday(day);
+                  final hasTask = offs.contains(i);
+                  return Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => widget.onTapDay(day),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Column(children: [
+                          Text(const ['M','T','W','T','F','S','S'][i],
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.label3,
+                                  letterSpacing: 0.5)),
+                          const SizedBox(height: 6),
+                          Container(
+                            width: 34, height: 34,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: selected
+                                  ? AppColors.label
+                                  : Colors.transparent,
+                              border: selected
+                                  ? null
+                                  : Border.all(
+                                      color: AppColors.separator, width: 1),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text('${day.day}',
+                                style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: selected
+                                        ? FontWeight.w800
+                                        : FontWeight.w600,
+                                    color: selected
+                                        ? AppColors.bg
+                                        : AppColors.label)),
+                          ),
+                          const SizedBox(height: 5),
+                          Container(
+                            width: 5, height: 5,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: hasTask
+                                  ? (selected
+                                      ? AppColors.label
+                                      : AppColors.label2)
+                                  : Colors.transparent,
+                            ),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            );
+          },
+        ),
+      ),
+    ]);
   }
 }
 
@@ -1023,10 +1122,12 @@ class _WeekDayGroup extends StatelessWidget {
 
 class _DayZoomCard extends StatefulWidget {
   final DateTime day;
+  final List<Map<String, dynamic>> initialTasks; // seeds an instant paint
   final ValueChanged<Map<String, dynamic>> onOpenTask;
   final Future<bool> Function() onAdd;
   const _DayZoomCard({
     required this.day,
+    required this.initialTasks,
     required this.onOpenTask,
     required this.onAdd,
   });
@@ -1037,18 +1138,23 @@ class _DayZoomCard extends StatefulWidget {
 class _DayZoomCardState extends State<_DayZoomCard> {
   List<Map<String, dynamic>> _tasks = [];
   List<DeviceEvent> _events = [];
-  bool _loading = true;
 
   static const _wd = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   static const _mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    // Seed from what Home already loaded → the card animates in with content,
+    // no spinner-then-resize flash. Then refresh silently.
+    _tasks = widget.initialTasks;
+    _load();
+  }
 
   Future<void> _load() async {
     final t = await SupabaseService.getTasksForDate(widget.day);
     final e = await DeviceCalendarService.eventsForDay(widget.day);
-    if (mounted) setState(() { _tasks = t; _events = e; _loading = false; });
+    if (mounted) setState(() { _tasks = t; _events = e; });
   }
 
   String _time(DateTime d) {
@@ -1114,11 +1220,7 @@ class _DayZoomCardState extends State<_DayZoomCard> {
                 ]),
               ),
               Flexible(
-                child: _loading
-                    ? const Padding(
-                        padding: EdgeInsets.all(40),
-                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
-                    : (_tasks.isEmpty && _events.isEmpty)
+                child: (_tasks.isEmpty && _events.isEmpty)
                         ? Padding(
                             padding: const EdgeInsets.fromLTRB(22, 8, 22, 40),
                             child: Align(

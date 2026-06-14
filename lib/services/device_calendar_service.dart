@@ -237,6 +237,26 @@ class DeviceCalendarService {
     }
   }
 
+  /// Delete an event we previously created (used when a reminder is completed
+  /// or deleted, so its synced copy disappears from Apple/Google). Best-effort.
+  static Future<void> deleteEvent(String calendarId, String eventId) async {
+    if (kIsWeb) return;
+    try {
+      await _plugin.deleteEvent(calendarId, eventId);
+    } catch (_) {/* already gone / no permission — ignore */}
+  }
+
+  /// Delete every device event linked to a reminder (the `device_events`
+  /// jsonb list of {cal, ev}). Used on completion/deletion.
+  static Future<void> deleteLinkedEvents(List<dynamic> linked) async {
+    for (final e in linked) {
+      if (e is Map) {
+        final cal = e['cal']; final ev = e['ev'];
+        if (cal is String && ev is String) await deleteEvent(cal, ev);
+      }
+    }
+  }
+
   /// Creates an event in [calendarId]. Returns the new event ID or null.
   static Future<String?> createEvent({
     required String calendarId,
