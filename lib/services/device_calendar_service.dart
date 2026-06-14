@@ -11,12 +11,14 @@ class DeviceEvent {
   final DateTime? end;
   final bool allDay;
   final String calendarName;
+  final int? color; // ARGB of the owning calendar (ambient tint)
   const DeviceEvent({
     required this.title,
     required this.start,
     required this.end,
     required this.allDay,
     required this.calendarName,
+    this.color,
   });
 }
 
@@ -24,7 +26,14 @@ class DeviceEvent {
 class WritableCalendar {
   final String id;
   final String name;
-  const WritableCalendar({required this.id, required this.name});
+  final int? color;
+  final String kind; // 'apple' | 'google' | 'other'
+  const WritableCalendar({
+    required this.id,
+    required this.name,
+    this.color,
+    this.kind = 'other',
+  });
 }
 
 /// One device calendar, surfaced in the visibility chooser.
@@ -33,11 +42,15 @@ class DeviceCalendarInfo {
   final String name;
   final bool isReadOnly;
   final bool visible;
+  final int? color;
+  final String kind; // 'apple' | 'google' | 'other'
   const DeviceCalendarInfo({
     required this.id,
     required this.name,
     required this.isReadOnly,
     required this.visible,
+    this.color,
+    this.kind = 'other',
   });
 }
 
@@ -76,6 +89,27 @@ class DeviceCalendarService {
     await Hive.box(kSettingsBox).put(kHiddenCalendarsKey, set.toList());
   }
 
+  // Classify a calendar's owning account so the UI can say "Apple"/"Google".
+  // On iOS, Google accounts sync over CalDAV but carry the gmail address as
+  // the account name; iCloud shows up as "iCloud".
+  static String _kindOf(String? accountName, String? accountType) {
+    final n = (accountName ?? '').toLowerCase();
+    final t = (accountType ?? '').toLowerCase();
+    if (n.contains('google') || n.contains('gmail') || t.contains('google')) {
+      return 'google';
+    }
+    if (n.contains('icloud') ||
+        n.contains('apple') ||
+        t.contains('local') ||
+        t.contains('caldav') ||
+        t.contains('exchange') ||
+        t.contains('subscribed') ||
+        t.contains('birthday')) {
+      return 'apple';
+    }
+    return 'other';
+  }
+
   /// Every calendar on the device, each flagged with its current visibility,
   /// for the "Choose calendars" chooser. Requires permission.
   static Future<List<DeviceCalendarInfo>> allCalendars() async {
@@ -93,11 +127,20 @@ class DeviceCalendarService {
                 name: c.name ?? 'Calendar',
                 isReadOnly: c.isReadOnly ?? false,
                 visible: !hidden.contains(c.id),
+                color: c.color,
+                kind: _kindOf(c.accountName, c.accountType),
               ))
           .toList();
     } catch (_) {
       return [];
     }
+  }
+
+  /// Which account kinds the user actually has writable calendars for —
+  /// drives the "Add to Apple/Google Calendar" labelling.
+  static Future<Set<String>> writableAccountKinds() async {
+    final cals = await writableCalendars();
+    return cals.map((c) => c.kind).where((k) => k != 'other').toSet();
   }
 
   static Future<bool> ensurePermission() async {
@@ -119,6 +162,12 @@ class DeviceCalendarService {
     final start = DateTime(day.year, day.month, day.day);
     final end   = start.add(const Duration(days: 1));
     return _eventsForRange(start, end);
+  }
+
+  /// All events across a Mon-anchored week (home agenda).
+  static Future<List<DeviceEvent>> eventsForWeek(DateTime weekStart) async {
+    final start = DateTime(weekStart.year, weekStart.month, weekStart.day);
+    return _eventsForRange(start, start.add(const Duration(days: 7)));
   }
 
   /// All events across a whole calendar month (used for chip rendering).
@@ -150,6 +199,7 @@ class DeviceCalendarService {
             end:   e.end?.toLocal(),
             allDay: e.allDay ?? false,
             calendarName: cal.name ?? '',
+            color: cal.color,
           ));
         }
       }
@@ -175,7 +225,12 @@ class DeviceCalendarService {
       if (!cals.isSuccess || cals.data == null) return [];
       return cals.data!
           .where((c) => c.id != null && !(c.isReadOnly ?? true))
-          .map((c) => WritableCalendar(id: c.id!, name: c.name ?? 'Calendar'))
+          .map((c) => WritableCalendar(
+                id: c.id!,
+                name: c.name ?? 'Calendar',
+                color: c.color,
+                kind: _kindOf(c.accountName, c.accountType),
+              ))
           .toList();
     } catch (_) {
       return [];

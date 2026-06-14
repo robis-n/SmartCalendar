@@ -102,6 +102,24 @@ class SupabaseService {
     return offsets;
   }
 
+  /// All of the current user's tasks in the given Mon-anchored week,
+  /// ordered by time — powers the home "this week" agenda.
+  static Future<List<Map<String, dynamic>>> getTasksForWeek(DateTime weekStart) async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return [];
+    final monday = DateTime(weekStart.year, weekStart.month, weekStart.day);
+    final start = tsToDb(monday);
+    final end = tsToDb(monday.add(const Duration(days: 7)));
+    final res = await client
+        .from('tasks')
+        .select()
+        .eq('user_id', userId)
+        .gte('scheduled_time', start)
+        .lt('scheduled_time', end)
+        .order('scheduled_time');
+    return List<Map<String, dynamic>>.from(res);
+  }
+
   static Future<Map<String, dynamic>?> getTaskById(String taskId) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return null;
@@ -260,27 +278,19 @@ class SupabaseService {
     }
   }
 
-  /// Find someone by @username (preferred) — falls back to email if it
-  /// contains an @ (so existing email-based flows still work).
+  /// Find someone by @username or email. Routed through a SECURITY DEFINER
+  /// RPC that returns only {id, username} — the users table itself is no
+  /// longer broadly readable, so strangers' emails never leave the server.
   static Future<Map<String, dynamic>?> searchUserByHandle(String handle) async {
-    final myId = client.auth.currentUser?.id;
-    final q = handle.toLowerCase().trim().replaceFirst(RegExp(r'^@'), '');
+    final q = handle.trim().replaceFirst(RegExp(r'^@'), '');
     if (q.isEmpty) return null;
-    final byUsername = await client
-        .from('users')
-        .select('id, email, username')
-        .eq('username', q)
-        .maybeSingle();
-    if (byUsername != null && byUsername['id'] != myId) return byUsername;
-    if (q.contains('@')) {
-      final byEmail = await client
-          .from('users')
-          .select('id, email, username')
-          .eq('email', q)
-          .maybeSingle();
-      if (byEmail != null && byEmail['id'] != myId) return byEmail;
+    try {
+      final res = await client.rpc('search_user', params: {'p': q});
+      final list = List<Map<String, dynamic>>.from((res as List?) ?? const []);
+      return list.isEmpty ? null : list.first; // {id, username}
+    } catch (_) {
+      return null;
     }
-    return null;
   }
 
   /// Backwards-compat alias for the older code paths still calling this name.
@@ -288,16 +298,16 @@ class SupabaseService {
       searchUserByHandle(email);
 
   /// Resolve a username → email so the user can sign in with either.
-  /// Returns null if no such user (caller treats input as email already).
+  /// Server-side RPC (callable pre-auth); returns null if no such user.
   static Future<String?> emailForUsername(String username) async {
     final clean = username.toLowerCase().trim();
     if (clean.isEmpty || clean.contains('@')) return null;
-    final res = await client
-        .from('users')
-        .select('email')
-        .eq('username', clean)
-        .maybeSingle();
-    return res?['email'] as String?;
+    try {
+      final res = await client.rpc('email_for_username', params: {'p': clean});
+      return res as String?;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Random "you might know…" friend suggestions — people I'm not already
@@ -306,24 +316,13 @@ class SupabaseService {
   static Future<List<Map<String, dynamic>>> getFriendSuggestions({int limit = 6}) async {
     final me = client.auth.currentUser?.id;
     if (me == null) return [];
-
-    // IDs I'm already tied to (any status).
-    final mine = await client
-        .from('friendships')
-        .select('requester_id, addressee_id')
-        .or('requester_id.eq.$me,addressee_id.eq.$me');
-    final excluded = <String>{me};
-    for (final row in (mine as List)) {
-      excluded.add(row['requester_id'] as String);
-      excluded.add(row['addressee_id'] as String);
+    // Server-side RPC: returns only {id, username} of non-friends, never email.
+    try {
+      final res = await client.rpc('friend_suggestions', params: {'lim': limit});
+      return List<Map<String, dynamic>>.from((res as List?) ?? const []);
+    } catch (_) {
+      return [];
     }
-
-    final all = List<Map<String, dynamic>>.from(
-      await client.from('users').select('id, username, email').limit(40),
-    );
-    final candidates = all.where((u) => !excluded.contains(u['id'])).toList();
-    candidates.shuffle();
-    return candidates.take(limit).toList();
   }
 
   // ── Friends ────────────────────────────────────────────

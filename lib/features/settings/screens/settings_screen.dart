@@ -128,6 +128,46 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 22),
 
+                  // ── Calendars (Apple / Google via the phone) ──────
+                  // Placed high up for accessibility — it's a primary control.
+                  if (!kIsWeb) ...[
+                    _sectionLabel('CALENDARS'),
+                    _section([
+                      _switchRow(
+                        icon: Icons.calendar_month_outlined,
+                        title: 'Show phone calendars',
+                        value: _deviceCals,
+                        onChanged: (v) async {
+                          if (v) {
+                            final ok = await DeviceCalendarService.ensurePermission();
+                            if (!ok) {
+                              _snack('Calendar access was denied — allow it in iOS Settings');
+                              return;
+                            }
+                          }
+                          await DeviceCalendarService.setEnabled(v);
+                          setState(() => _deviceCals = v);
+                        },
+                      ),
+                      if (_deviceCals) ...[
+                        _divider(),
+                        _row(
+                          icon: Icons.checklist_rounded,
+                          title: 'Choose calendars',
+                          onTap: _pickCalendars,
+                        ),
+                      ],
+                    ]),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
+                      child: Text(
+                        'Events from Apple Calendar and any Google accounts on this phone appear inside your calendar. Read-only — your tasks stay private.',
+                        style: TextStyle(fontSize: 12, color: AppColors.label3, height: 1.4),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                  ],
+
                   // ── Social & stats (moved out of the tab bar) ─────
                   _sectionLabel('SOCIAL & STATS'),
                   _section([
@@ -205,45 +245,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ]),
                   const SizedBox(height: 22),
-
-                  // ── Calendars (Apple / Google via the phone) ──────
-                  if (!kIsWeb) ...[
-                    _sectionLabel('CALENDARS'),
-                    _section([
-                      _switchRow(
-                        icon: Icons.calendar_month_outlined,
-                        title: 'Show phone calendars',
-                        value: _deviceCals,
-                        onChanged: (v) async {
-                          if (v) {
-                            final ok = await DeviceCalendarService.ensurePermission();
-                            if (!ok) {
-                              _snack('Calendar access was denied — allow it in iOS Settings');
-                              return;
-                            }
-                          }
-                          await DeviceCalendarService.setEnabled(v);
-                          setState(() => _deviceCals = v);
-                        },
-                      ),
-                      if (_deviceCals) ...[
-                        _divider(),
-                        _row(
-                          icon: Icons.checklist_rounded,
-                          title: 'Choose calendars',
-                          onTap: _pickCalendars,
-                        ),
-                      ],
-                    ]),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
-                      child: Text(
-                        'Events from Apple Calendar and any Google accounts on this phone appear inside your calendar. Read-only — your tasks stay private.',
-                        style: TextStyle(fontSize: 12, color: AppColors.label3, height: 1.4),
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                  ],
 
                   // ── Privacy ───────────────────────────────────────
                   _sectionLabel('PRIVACY'),
@@ -544,6 +545,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      // Cover the floating nav bar so the last calendar isn't clipped behind it.
+      useRootNavigator: true,
       backgroundColor: AppColors.card,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -582,18 +585,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             Expanded(
               child: ListView.separated(
                 controller: scrollCtrl,
-                padding: const EdgeInsets.fromLTRB(24, 6, 24, 32),
+                padding: EdgeInsets.fromLTRB(
+                    24, 6, 24, MediaQuery.of(ctx).padding.bottom + 32),
                 itemCount: cals.length,
                 separatorBuilder: (_, _) =>
                     Container(height: 0.5, color: AppColors.separator),
                 itemBuilder: (_, i) {
                   final c = cals[i];
                   final visible = !hidden.contains(c.id);
+                  final dot = c.color != null
+                      ? Color(c.color!)
+                      : AppColors.label2;
+                  final sub = switch (c.kind) {
+                    'google' => c.isReadOnly ? 'Google · read-only' : 'Google',
+                    'apple'  => c.isReadOnly ? 'Apple · read-only' : 'Apple',
+                    _        => c.isReadOnly ? 'Read-only' : null,
+                  };
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     child: Row(children: [
-                      Icon(Icons.calendar_month_outlined,
-                          size: 20, color: AppColors.label2),
+                      Icon(Icons.circle, size: 14, color: dot),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
@@ -606,8 +617,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       fontSize: 16,
                                       fontWeight: FontWeight.w500,
                                       color: AppColors.label)),
-                              if (c.isReadOnly)
-                                Text('Read-only',
+                              if (sub != null)
+                                Text(sub,
                                     style: TextStyle(
                                         fontSize: 12,
                                         color: AppColors.label3)),

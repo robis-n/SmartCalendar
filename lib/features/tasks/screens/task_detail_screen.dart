@@ -83,6 +83,36 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     _load();
   }
 
+  // Reuse a finished task instead of recreating it: pick a fresh time, flip
+  // it back to pending, clear the completion stamp and re-arm its reminders.
+  Future<void> _resetReminder() async {
+    final base = DateTime.now().add(const Duration(hours: 1));
+    final d = await showDatePicker(
+        context: context,
+        initialDate: base,
+        firstDate: DateTime.now().subtract(const Duration(days: 1)),
+        lastDate: DateTime(DateTime.now().year + 5, 12, 31));
+    if (d == null || !mounted) return;
+    final t = await showTimePicker(
+        context: context, initialTime: TimeOfDay.fromDateTime(base));
+    if (t == null || !mounted) return;
+    final dt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+
+    setState(() => _saving = true);
+    await SupabaseService.updateTask(widget.taskId, {
+      'status': 'pending',
+      'completed_at': null,
+      'scheduled_time': tsToDb(dt),
+    });
+    await NotificationService().scheduleTaskNotifications(
+      taskId: widget.taskId,
+      taskTitle: _task?['title'] ?? '',
+      deadline: dt,
+      priority: _task?['priority'] as String? ?? 'medium',
+    );
+    if (mounted) { setState(() => _saving = false); _load(); }
+  }
+
   Future<void> _delete() async {
     final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
       title: const Text('Delete task?'),
@@ -350,6 +380,18 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     if (mounted) { setState(() => _saving = false); _load(); }
                   },
                   child: const Text('Re-open task'),
+                ),
+              ] else if (status == 'verified') ...[
+                // Reuse a completed task: set a new time and arm it again,
+                // so the user never has to recreate the same reminder.
+                FilledButton(
+                  onPressed: _saving ? null : _resetReminder,
+                  child: const Text('Reset reminder'),
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: Text('Pick a new time to do this again.',
+                      style: TextStyle(fontSize: 13, color: AppColors.label3)),
                 ),
               ],
             ],

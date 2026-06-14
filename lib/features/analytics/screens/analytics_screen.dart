@@ -162,7 +162,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
           ],
 
-          const SliverToBoxAdapter(child: SizedBox(height: 60)),
+          // Clear the floating glass nav bar so the last row isn't clipped.
+          const SliverToBoxAdapter(child: SizedBox(height: 130)),
         ]),
       ),
     );

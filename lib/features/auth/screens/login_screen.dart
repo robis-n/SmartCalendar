@@ -83,13 +83,8 @@ class _LoginScreenState extends State<LoginScreen> {
       await Supabase.instance.client.auth.signInWithPassword(
           email: AppConstants.ceoEmail, password: AppConstants.ceoPassword);
     }
-    final uid = Supabase.instance.client.auth.currentUser?.id;
-    if (uid != null) {
-      await SupabaseService.upsertUserProfile({
-        'id': uid, 'email': AppConstants.ceoEmail,
-        'username': 'ceo', 'subscription_tier': AppConstants.tierAdmin,
-      });
-    }
+    // NB: subscription_tier is NOT set here — a DB trigger ignores any
+    // client-side tier write (anti-escalation). Admin is granted server-side.
     if (mounted) _onSignedIn();
   }
 
@@ -173,6 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: _Entrance(
               child: Column(mainAxisSize: MainAxisSize.min, children: [

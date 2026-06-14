@@ -113,7 +113,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         backgroundColor: AppColors.bg,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        // Bottom inset clears the floating nav bar (covers the whole app).
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 130),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

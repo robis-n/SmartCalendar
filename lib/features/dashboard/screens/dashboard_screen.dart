@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:flutter/services.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/time_utils.dart';
+import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../tasks/screens/add_task_screen.dart';
@@ -21,9 +22,21 @@ class _DashboardScreenState extends State<DashboardScreen>
   List<Map<String, dynamic>> _tasks  = [];
   List<Map<String, dynamic>> _shared = [];
   List<Map<String, dynamic>> _undone = []; // overdue + never completed
+  List<Map<String, dynamic>> _week   = []; // this week's tasks (agenda)
   Set<int> _weekTaskDays = {};             // Mon=0 offsets with ≥1 task
   String _tier    = AppConstants.tierFree;
   bool   _loading = true;
+
+  // In-memory cache so returning to Home (the shell rebuilds the screen on
+  // every tab switch) paints instantly from the last load, then refreshes
+  // silently in the background — no full-screen spinner after the first time.
+  static List<Map<String, dynamic>> _cTasks = [];
+  static List<Map<String, dynamic>> _cShared = [];
+  static List<Map<String, dynamic>> _cUndone = [];
+  static List<Map<String, dynamic>> _cWeek = [];
+  static Set<int> _cWeekDays = {};
+  static String _cTier = AppConstants.tierFree;
+  static bool _hasCache = false;
 
   static DateTime get _mondayOfThisWeek {
     final n = DateTime.now();
@@ -42,6 +55,16 @@ class _DashboardScreenState extends State<DashboardScreen>
     _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(_refreshClock);
     });
+    // Seed from cache for an instant paint, then refresh silently.
+    if (_hasCache) {
+      _tasks = _cTasks;
+      _shared = _cShared;
+      _undone = _cUndone;
+      _week = _cWeek;
+      _weekTaskDays = _cWeekDays;
+      _tier = _cTier;
+      _loading = false;
+    }
     _load();
   }
 
@@ -69,12 +92,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ── Data ───────────────────────────────────────────────
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    // Spinner only when there's nothing to show yet; otherwise refresh silently.
+    if (!_hasCache) setState(() => _loading = true);
     final tasks    = await SupabaseService.getTodayTasks();
     final shared   = await SupabaseService.getSharedTasksForDate(DateTime.now());
     final profile  = await SupabaseService.getUserProfile();
     final upcoming = await SupabaseService.getUpcomingPendingTasks();
     final undone   = await SupabaseService.getUndoneTasks();
+    final week     = await SupabaseService.getTasksForWeek(_mondayOfThisWeek);
     final weekDays = await SupabaseService.getTaskDayOffsetsForWeek(_mondayOfThisWeek);
 
     // Respect the Settings toggle: re-arming while disabled would undo it.
@@ -95,13 +120,20 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
     };
 
+    // Refresh the cache so the next instant paint is current.
+    _cTasks = tasks; _cShared = shared; _cUndone = undone; _cWeek = week;
+    _cWeekDays = weekDays;
+    _cTier = profile?['subscription_tier'] ?? AppConstants.tierFree;
+    _hasCache = true;
+
     if (mounted) {
       setState(() {
         _tasks        = tasks;
         _shared       = shared;
         _undone       = undone;
+        _week         = week;
         _weekTaskDays = weekDays;
-        _tier         = profile?['subscription_tier'] ?? AppConstants.tierFree;
+        _tier         = _cTier;
         _loading      = false;
       });
     }
@@ -141,6 +173,46 @@ class _DashboardScreenState extends State<DashboardScreen>
         },
       ),
     );
+  }
+
+  // Tapping a day on Home "zooms in" to that day — a scale+fade reveal
+  // showing exactly what's scheduled, with quick add. Reloads on return.
+  Future<void> _openDayZoom(DateTime day) async {
+    HapticFeedback.selectionClick();
+    await showGeneralDialog(
+      context: context,
+      useRootNavigator: true,
+      barrierDismissible: true,
+      barrierLabel: 'day',
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      transitionDuration: const Duration(milliseconds: 280),
+      pageBuilder: (_, _, _) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, anim, _, child) {
+        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.86, end: 1.0).animate(curved),
+            child: _DayZoomCard(
+              day: day,
+              onOpenTask: (t) async {
+                final r = await Navigator.of(ctx, rootNavigator: true).push(
+                    MaterialPageRoute(
+                        builder: (_) => TaskDetailScreen(taskId: t['id'])));
+                if (r != null) { if (mounted) _load(); }
+              },
+              onAdd: () async {
+                final r = await Navigator.of(ctx, rootNavigator: true).push(
+                    MaterialPageRoute(
+                        builder: (_) => AddTaskScreen(initialDate: day)));
+                return r == true;
+              },
+            ),
+          ),
+        );
+      },
+    );
+    if (mounted) _load();
   }
 
   Future<void> _openVerification(Map<String, dynamic> task) async {
@@ -269,7 +341,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     child: _WeekStrip(
                       monday: _mondayOfThisWeek,
                       taskDayOffsets: _weekTaskDays,
-                      onTapDay: (_) => context.go('/calendar'),
+                      onTapDay: _openDayZoom,
                     ),
                   ),
 
@@ -331,6 +403,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ),
                       ),
                     ],
+
+                    // ── Rest of this week ─────────────────────────
+                    ..._buildWeekAhead(),
+
                     const SliverToBoxAdapter(child: SizedBox(height: 120)),
                   ],
                 ],
@@ -353,6 +429,40 @@ class _DashboardScreenState extends State<DashboardScreen>
       Expanded(child: Container(height: 0.5, color: AppColors.separator)),
     ]),
   );
+
+  // Agenda for the rest of this week (days strictly after today) so Home
+  // shows "what's up" without duplicating the TODAY list.
+  List<Widget> _buildWeekAhead() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final byDay = <DateTime, List<Map<String, dynamic>>>{};
+    for (final t in _week) {
+      final d = tsTryFromDb(t['scheduled_time'] as String?);
+      if (d == null) continue;
+      final day = DateTime(d.year, d.month, d.day);
+      if (!day.isAfter(today)) continue; // future days within this week only
+      byDay.putIfAbsent(day, () => []).add(t);
+    }
+    if (byDay.isEmpty) return const [];
+    final days = byDay.keys.toList()..sort();
+    return [
+      SliverToBoxAdapter(child: _sectionRule('THIS WEEK')),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+        sliver: SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (ctx, i) => _WeekDayGroup(
+              day: days[i],
+              tasks: byDay[days[i]]!,
+              onTapDay: () => _openDayZoom(days[i]),
+              onTapTask: _openDetail,
+            ),
+            childCount: days.length,
+          ),
+        ),
+      ),
+    ];
+  }
 }
 
 // ── Shared-with-you row (read-only) ───────────────────────────────────────────
@@ -811,6 +921,304 @@ class _UndoneSheet extends StatelessWidget {
           ]),
         ),
       ),
+    );
+  }
+}
+
+// ── This-week agenda day group ────────────────────────────────────────────────
+
+class _WeekDayGroup extends StatelessWidget {
+  final DateTime day;
+  final List<Map<String, dynamic>> tasks;
+  final VoidCallback onTapDay;
+  final ValueChanged<Map<String, dynamic>> onTapTask;
+  const _WeekDayGroup({
+    required this.day,
+    required this.tasks,
+    required this.onTapDay,
+    required this.onTapTask,
+  });
+
+  String _label() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final diff = day.difference(today).inDays;
+    if (diff == 1) return 'Tomorrow';
+    const wd = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${wd[day.weekday - 1]}, ${mo[day.month - 1]} ${day.day}';
+  }
+
+  String _time(DateTime d) {
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTapDay,
+          child: Row(children: [
+            Text(_label(),
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.label,
+                    letterSpacing: -0.2)),
+            const SizedBox(width: 8),
+            Text('${tasks.length}',
+                style: TextStyle(fontSize: 13, color: AppColors.label3)),
+            const Spacer(),
+            Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.label3),
+          ]),
+        ),
+        const SizedBox(height: 6),
+        ...tasks.map((t) {
+          final done = (t['status'] as String?) == 'verified';
+          final sched = tsTryFromDb(t['scheduled_time'] as String?);
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => onTapTask(t),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 7),
+              child: Row(children: [
+                Container(
+                  width: 6, height: 6,
+                  margin: const EdgeInsets.only(right: 12),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: done
+                        ? AppColors.label3
+                        : AppColors.label.withValues(alpha: 0.7),
+                  ),
+                ),
+                Expanded(
+                  child: Text(t['title'] as String? ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 15,
+                          color: done ? AppColors.label3 : AppColors.label,
+                          decoration:
+                              done ? TextDecoration.lineThrough : null,
+                          decorationColor: AppColors.label3)),
+                ),
+                const SizedBox(width: 10),
+                Text(sched != null ? _time(sched) : 'Anytime',
+                    style: TextStyle(fontSize: 13, color: AppColors.label3)),
+              ]),
+            ),
+          );
+        }),
+      ]),
+    );
+  }
+}
+
+// ── Zoom-in day card (opened from Home) ───────────────────────────────────────
+
+class _DayZoomCard extends StatefulWidget {
+  final DateTime day;
+  final ValueChanged<Map<String, dynamic>> onOpenTask;
+  final Future<bool> Function() onAdd;
+  const _DayZoomCard({
+    required this.day,
+    required this.onOpenTask,
+    required this.onAdd,
+  });
+  @override
+  State<_DayZoomCard> createState() => _DayZoomCardState();
+}
+
+class _DayZoomCardState extends State<_DayZoomCard> {
+  List<Map<String, dynamic>> _tasks = [];
+  List<DeviceEvent> _events = [];
+  bool _loading = true;
+
+  static const _wd = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  static const _mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    final t = await SupabaseService.getTasksForDate(widget.day);
+    final e = await DeviceCalendarService.eventsForDay(widget.day);
+    if (mounted) setState(() { _tasks = t; _events = e; _loading = false; });
+  }
+
+  String _time(DateTime d) {
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.day;
+    final title = '${_wd[d.weekday - 1]}, ${_mo[d.month - 1]} ${d.day}';
+    final mq = MediaQuery.of(context);
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+            horizontal: 20, vertical: mq.padding.top + 40),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            constraints: BoxConstraints(maxHeight: mq.size.height * 0.7),
+            decoration: BoxDecoration(
+              color: AppColors.card,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: cardShadow,
+              border: Border.all(color: AppColors.separator, width: 0.5),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 14, 12),
+                child: Row(children: [
+                  Expanded(
+                    child: Text(title,
+                        style: TextStyle(
+                            fontSize: 21,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.label,
+                            letterSpacing: -0.6)),
+                  ),
+                  GestureDetector(
+                    onTap: () async {
+                      final added = await widget.onAdd();
+                      if (added) _load();
+                    },
+                    child: Container(
+                      width: 36, height: 36,
+                      margin: const EdgeInsets.only(right: 6),
+                      decoration: BoxDecoration(
+                          color: AppColors.label, shape: BoxShape.circle),
+                      child: Icon(Icons.add_rounded, color: AppColors.bg, size: 20),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).maybePop(),
+                    child: Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(
+                          color: AppColors.bg2, shape: BoxShape.circle),
+                      child: Icon(Icons.close_rounded,
+                          color: AppColors.label2, size: 18),
+                    ),
+                  ),
+                ]),
+              ),
+              Flexible(
+                child: _loading
+                    ? const Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
+                    : (_tasks.isEmpty && _events.isEmpty)
+                        ? Padding(
+                            padding: const EdgeInsets.fromLTRB(22, 8, 22, 40),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text('Nothing scheduled. Tap + to add.',
+                                  style: TextStyle(
+                                      fontSize: 15, color: AppColors.label3)),
+                            ),
+                          )
+                        : ListView(
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.fromLTRB(22, 0, 22, 24),
+                            children: [
+                              for (final t in _tasks)
+                                _zoomTaskRow(t),
+                              if (_events.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text('FROM YOUR CALENDARS',
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.label3,
+                                        letterSpacing: 1.5)),
+                                const SizedBox(height: 4),
+                                for (final e in _events) _zoomEventRow(e),
+                              ],
+                            ],
+                          ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _zoomTaskRow(Map<String, dynamic> t) {
+    final done = (t['status'] as String?) == 'verified';
+    final sched = tsTryFromDb(t['scheduled_time'] as String?);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => widget.onOpenTask(t),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        child: Row(children: [
+          Container(
+            width: 28, height: 28,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: done ? AppColors.label : Colors.transparent,
+              border: done
+                  ? null
+                  : Border.all(color: AppColors.separator, width: 1.5),
+            ),
+            child: done
+                ? Icon(Icons.check_rounded, size: 15, color: AppColors.bg)
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(t['title'] as String? ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: done ? AppColors.label3 : AppColors.label,
+                    decoration: done ? TextDecoration.lineThrough : null,
+                    decorationColor: AppColors.label3)),
+          ),
+          const SizedBox(width: 10),
+          Text(sched != null ? _time(sched) : 'Anytime',
+              style: TextStyle(fontSize: 13, color: AppColors.label3)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _zoomEventRow(DeviceEvent e) {
+    final ambient = e.color != null ? Color(e.color!) : AppColors.label2;
+    final when = e.allDay
+        ? 'All day'
+        : [if (e.start != null) _time(e.start!)].join();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      child: Row(children: [
+        Icon(Icons.circle, size: 11, color: ambient),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Text(e.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.label2)),
+        ),
+        const SizedBox(width: 10),
+        Text(when, style: TextStyle(fontSize: 13, color: AppColors.label3)),
+      ]),
     );
   }
 }

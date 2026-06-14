@@ -276,6 +276,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         ],
       ),
       body: ListView(
+        // Drag the list down and the keyboard dismisses with it.
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
         children: [
           // Title + notes card

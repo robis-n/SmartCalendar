@@ -433,8 +433,10 @@ class _CalChip {
   final String title;
   final bool isTask;
   final String status;
+  final int? color; // ambient calendar color (device events only)
   const _CalChip(
-      {required this.title, required this.isTask, this.status = 'pending'});
+      {required this.title, required this.isTask, this.status = 'pending',
+       this.color});
 }
 
 class _MonthGrid extends StatefulWidget {
@@ -494,8 +496,9 @@ class _MonthGridState extends State<_MonthGrid> {
             await DeviceCalendarService.eventsForMonth(widget.month);
         for (final e in devEvents) {
           if (e.start == null) continue;
+          if (e.title.trim().isEmpty) continue; // never render blank boxes
           result.putIfAbsent(e.start!.day, () => []).add(
-              _CalChip(title: e.title, isTask: false));
+              _CalChip(title: e.title, isTask: false, color: e.color));
         }
       } catch (_) {}
     }
@@ -565,7 +568,11 @@ class _MonthGridState extends State<_MonthGrid> {
 
             final today = _isToday(day);
             final sel   = _isSel(day);
-            final chips = _chips[day] ?? [];
+            // Defensive: if the user turned phone calendars off, never show
+            // device chips even if a stale fetch is still cached.
+            final chips = (_chips[day] ?? [])
+                .where((c) => c.isTask || DeviceCalendarService.enabled)
+                .toList();
 
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
@@ -635,14 +642,22 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDone = chip.status == 'verified';
     final base   = onToday ? AppColors.bg : AppColors.label;
+    // Device events carry their calendar's ambient color (Apple-style); tasks
+    // stay monochrome ink so they read as "yours".
+    final ambient = (!chip.isTask && chip.color != null && !onToday)
+        ? Color(chip.color!)
+        : null;
     final bgAlpha = chip.isTask ? 0.14 : 0.07;
 
     return Container(
       margin: const EdgeInsets.only(top: 1.5, left: 0.5, right: 0.5),
-      padding: const EdgeInsets.symmetric(horizontal: 3.0, vertical: 1.5),
+      padding: const EdgeInsets.fromLTRB(4, 1.5, 3, 1.5),
       decoration: BoxDecoration(
-        color: base.withValues(alpha: bgAlpha),
+        color: (ambient ?? base).withValues(alpha: bgAlpha),
         borderRadius: BorderRadius.circular(3),
+        border: ambient != null
+            ? Border(left: BorderSide(color: ambient, width: 2))
+            : null,
       ),
       child: Text(
         chip.title,
@@ -651,7 +666,10 @@ class _Chip extends StatelessWidget {
         style: TextStyle(
           fontSize: 9,
           fontWeight: FontWeight.w600,
-          color: base.withValues(alpha: chip.isTask ? 0.9 : 0.55),
+          color: ambient != null
+              ? Color.alphaBlend(
+                  ambient.withValues(alpha: 0.85), AppColors.label)
+              : base.withValues(alpha: chip.isTask ? 0.9 : 0.55),
           decoration: isDone ? TextDecoration.lineThrough : null,
           decorationColor: base.withValues(alpha: 0.4),
         ),
@@ -670,6 +688,7 @@ class _WeekEvent {
   final bool isTask;
   final bool allDay;
   final String status;
+  final int? color; // device-calendar ambient color
   const _WeekEvent({
     this.id = '',
     required this.title,
@@ -678,6 +697,7 @@ class _WeekEvent {
     required this.isTask,
     this.allDay = false,
     this.status = 'pending',
+    this.color,
   });
 }
 
@@ -765,6 +785,7 @@ class _WeekTimelineState extends State<_WeekTimeline> {
           final d = widget.weekStart.add(Duration(days: day));
           final devEvs = await DeviceCalendarService.eventsForDay(d);
           for (final e in devEvs) {
+            if (e.title.trim().isEmpty) continue;
             ev[day].add(_WeekEvent(
               title: e.title,
               start: e.start ?? widget.weekStart.add(Duration(days: day)),
@@ -773,6 +794,7 @@ class _WeekTimelineState extends State<_WeekTimeline> {
                       .add(const Duration(hours: 1)),
               isTask: false,
               allDay: e.allDay,
+              color: e.color,
             ));
           }
         } catch (_) {}
@@ -997,6 +1019,11 @@ class _WeekTimelineState extends State<_WeekTimeline> {
     final height = max(22.0, (endFrac - startFrac).clamp(0.0, 4.0) * _hourH);
     final left   = _labelW + day * dayW + 1.5;
     final isDone = event.status == 'verified';
+    final ambient = (!event.isTask && event.color != null)
+        ? Color(event.color!)
+        : null;
+    final accent = ambient ??
+        AppColors.label.withValues(alpha: event.isTask ? 0.8 : 0.55);
 
     return Positioned(
       top: top, left: left, width: dayW - 3, height: height,
@@ -1006,15 +1033,14 @@ class _WeekTimelineState extends State<_WeekTimeline> {
         child: Container(
           padding: const EdgeInsets.fromLTRB(4, 3, 3, 2),
           decoration: BoxDecoration(
-            color: event.isTask
-                ? AppColors.label.withValues(alpha: 0.11)
-                : AppColors.label.withValues(alpha: 0.06),
+            color: (ambient ?? AppColors.label)
+                .withValues(alpha: event.isTask ? 0.11 : 0.08),
             borderRadius: BorderRadius.circular(4),
             border: Border(
               left: BorderSide(
                 color: event.isTask
                     ? AppColors.label.withValues(alpha: isDone ? 0.3 : 0.8)
-                    : AppColors.label2,
+                    : accent,
                 width: 2.5,
               ),
             ),
@@ -1378,6 +1404,7 @@ class _DevEventRow extends StatelessWidget {
             if (event.end != null) fmtTime(event.end!),
           ].join(' – ');
 
+    final ambient = event.color != null ? Color(event.color!) : null;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 13),
       child: Row(children: [
@@ -1385,10 +1412,10 @@ class _DevEventRow extends StatelessWidget {
           width: 32, height: 32,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: AppColors.label.withValues(alpha: 0.07),
+            color: (ambient ?? AppColors.label).withValues(alpha: 0.12),
           ),
-          child: Icon(Icons.calendar_month_outlined,
-              size: 16, color: AppColors.label2),
+          child: Icon(Icons.circle,
+              size: 12, color: ambient ?? AppColors.label2),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -1566,6 +1593,7 @@ class _AddCalEventSheetState extends State<_AddCalEventSheet> {
             // Scrollable: with several writable calendars (or the keyboard up)
             // the picker used to overflow and you couldn't reach the lower rows.
             child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               child: Column(mainAxisSize: MainAxisSize.min, children: [
               Container(
                   width: 40, height: 5,
@@ -1662,9 +1690,21 @@ class _AddCalEventSheetState extends State<_AddCalEventSheet> {
                 ),
               ]),
 
-              // Calendar picker (multiple calendars)
+              // Calendar picker — every writable calendar, with its ambient
+              // colour and which account it belongs to (Apple / Google) so
+              // it's unmistakable where the event lands.
               if (widget.calendars.length > 1) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('SAVE TO',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.label3,
+                          letterSpacing: 1.5)),
+                ),
+                const SizedBox(height: 8),
                 Container(
                   decoration: BoxDecoration(
                     color: AppColors.card,
@@ -1674,28 +1714,44 @@ class _AddCalEventSheetState extends State<_AddCalEventSheet> {
                   child: Column(
                     children: widget.calendars.map((cal) {
                       final sel = cal.id == _calId;
+                      final dot = cal.color != null
+                          ? Color(cal.color!)
+                          : AppColors.label2;
+                      final kindLabel = switch (cal.kind) {
+                        'google' => 'Google Calendar',
+                        'apple'  => 'Apple Calendar',
+                        _        => null,
+                      };
                       return GestureDetector(
                         onTap: () => setState(() => _calId = cal.id),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 12),
                           child: Row(children: [
-                            Icon(Icons.circle,
-                                size: 10,
-                                color: sel
-                                    ? AppColors.label
-                                    : AppColors.label3),
+                            Icon(Icons.circle, size: 12, color: dot),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: Text(cal.name,
-                                  style: TextStyle(
-                                      fontSize: 15,
-                                      color: sel
-                                          ? AppColors.label
-                                          : AppColors.label2,
-                                      fontWeight: sel
-                                          ? FontWeight.w600
-                                          : FontWeight.w400)),
+                              child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(cal.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                            fontSize: 15,
+                                            color: sel
+                                                ? AppColors.label
+                                                : AppColors.label2,
+                                            fontWeight: sel
+                                                ? FontWeight.w600
+                                                : FontWeight.w400)),
+                                    if (kindLabel != null)
+                                      Text(kindLabel,
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              color: AppColors.label3)),
+                                  ]),
                             ),
                             if (sel)
                               Icon(Icons.check_rounded,
@@ -1706,6 +1762,27 @@ class _AddCalEventSheetState extends State<_AddCalEventSheet> {
                     }).toList(),
                   ),
                 ),
+              ] else if (widget.calendars.length == 1) ...[
+                const SizedBox(height: 14),
+                Builder(builder: (_) {
+                  final cal = widget.calendars.first;
+                  final kindLabel = switch (cal.kind) {
+                    'google' => 'Saving to Google Calendar',
+                    'apple'  => 'Saving to Apple Calendar',
+                    _        => 'Saving to ${cal.name}',
+                  };
+                  return Row(children: [
+                    Icon(Icons.circle,
+                        size: 12,
+                        color: cal.color != null
+                            ? Color(cal.color!)
+                            : AppColors.label2),
+                    const SizedBox(width: 10),
+                    Text(kindLabel,
+                        style: TextStyle(
+                            fontSize: 13, color: AppColors.label3)),
+                  ]);
+                }),
               ],
             ]),
             ),
