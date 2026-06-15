@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../services/supabase_service.dart';
 
@@ -50,13 +49,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
     final raw = _identifier.text.trim();
     try {
-      // CEO shortcut keeps working (matches by email).
-      if (raw == AppConstants.ceoEmail &&
-          _password.text.trim() == AppConstants.ceoPassword) {
-        await _ceoLogin();
-        return;
-      }
-
       // If user typed a username (no @), resolve to email first.
       final email = raw.contains('@')
           ? raw
@@ -64,29 +56,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
       await Supabase.instance.client.auth.signInWithPassword(
           email: email, password: _password.text.trim());
+      // The admin (CEO) account signs in exactly like anyone else — its admin
+      // rights live in the DB (subscription_tier = 'admin'), never in the app.
       if (mounted) _onSignedIn();
     } catch (e) {
       _snack(_friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<void> _ceoLogin() async {
-    try {
-      await Supabase.instance.client.auth.signInWithPassword(
-          email: AppConstants.ceoEmail, password: AppConstants.ceoPassword);
-    } catch (_) {
-      await Supabase.instance.client.auth.signUp(
-          email: AppConstants.ceoEmail, password: AppConstants.ceoPassword,
-          data: const {'username': 'ceo'});
-      await Future.delayed(const Duration(milliseconds: 800));
-      await Supabase.instance.client.auth.signInWithPassword(
-          email: AppConstants.ceoEmail, password: AppConstants.ceoPassword);
-    }
-    // NB: subscription_tier is NOT set here — a DB trigger ignores any
-    // client-side tier write (anti-escalation). Admin is granted server-side.
-    if (mounted) _onSignedIn();
   }
 
   void _onSignedIn() {

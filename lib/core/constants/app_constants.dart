@@ -1,8 +1,9 @@
 class AppConstants {
-  // CEO Admin credentials — full access to all features
-  static const String ceoEmail = 'ceo@smartcalendar.app';
-  static const String ceoPassword = 'Sm@rtC4l#R0bis2026!';
-  static const String ceoUsername = 'robis_ceo';
+  // NOTE: there are deliberately NO admin credentials here. Admin access is
+  // granted server-side only (a user's `subscription_tier = 'admin'` row,
+  // protected by a DB trigger that blocks any client-side tier change). The
+  // admin signs in with their normal email + password like everyone else.
+  // Never hardcode credentials in the app — they ship inside the binary.
 
   // Subscription tiers
   static const String tierFree = 'free';
