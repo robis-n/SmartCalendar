@@ -23,6 +23,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   List<Map<String, dynamic>> _shared = [];
   List<Map<String, dynamic>> _undone = []; // overdue + never completed
   List<Map<String, dynamic>> _week   = []; // this week's tasks (agenda)
+  List<Map<String, dynamic>> _global = []; // timeless bucket-list reminders
   Set<int> _weekTaskDays = {};             // Mon=0 offsets with ≥1 task
   String _tier    = AppConstants.tierFree;
   bool   _loading = true;
@@ -34,6 +35,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   static List<Map<String, dynamic>> _cShared = [];
   static List<Map<String, dynamic>> _cUndone = [];
   static List<Map<String, dynamic>> _cWeek = [];
+  static List<Map<String, dynamic>> _cGlobal = [];
   static Set<int> _cWeekDays = {};
   static String _cTier = AppConstants.tierFree;
   static bool _hasCache = false;
@@ -61,10 +63,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     // accounts must never show the previous user's tasks).
     final uid = SupabaseService.client.auth.currentUser?.id;
     if (_hasCache && _cUid == uid) {
-      _tasks = _cTasks;
+      _tasks  = _cTasks;
       _shared = _cShared;
       _undone = _cUndone;
-      _week = _cWeek;
+      _week   = _cWeek;
+      _global = _cGlobal;
       _weekTaskDays = _cWeekDays;
       _tier = _cTier;
       _loading = false;
@@ -109,6 +112,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final undone   = await SupabaseService.getUndoneTasks();
     final week     = await SupabaseService.getTasksForWeek(_mondayOfThisWeek);
     final weekDays = await SupabaseService.getTaskDayOffsetsForWeek(_mondayOfThisWeek);
+    final global   = await SupabaseService.getGlobalReminders();
 
     // Respect the Settings toggle: re-arming while disabled would undo it.
     final prefs = Map<String, dynamic>.from((profile?['preferences'] as Map?) ?? {});
@@ -130,7 +134,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     // Refresh the cache so the next instant paint is current.
     _cTasks = tasks; _cShared = shared; _cUndone = undone; _cWeek = week;
-    _cWeekDays = weekDays;
+    _cGlobal = global; _cWeekDays = weekDays;
     _cTier = profile?['subscription_tier'] ?? AppConstants.tierFree;
     _cUid = uid;
     _hasCache = true;
@@ -141,6 +145,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         _shared       = shared;
         _undone       = undone;
         _week         = week;
+        _global       = global;
         _weekTaskDays = weekDays;
         _tier         = _cTier;
         _loading      = false;
@@ -305,7 +310,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               )
             else
               const SizedBox(width: 60),
-            _InkFAB(icon: Icons.add_rounded, onTap: _openAddTask),
+            _InkFAB(icon: Icons.add_rounded, accent: true, onTap: _openAddTask),
           ],
         ),
       ),
@@ -432,15 +437,42 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ),
                     ],
 
+                    // ── Timeless bucket-list reminders ───────────
+                    ..._buildGlobal(),
+
                     // ── Rest of this week ─────────────────────────
                     ..._buildWeekAhead(),
 
-                    const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                    // Extra room so content scrolls above the floating FABs
+                    // even at the largest text scale (FABs sit ~168px from bottom).
+                    const SliverToBoxAdapter(child: SizedBox(height: 200)),
                   ],
                 ],
               ),
       ),
     );
+  }
+
+  // Timeless bucket-list reminders — no deadline, just things to get to.
+  List<Widget> _buildGlobal() {
+    if (_global.isEmpty) return const [];
+    return [
+      SliverToBoxAdapter(child: _sectionRule('ANYTIME')),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+        sliver: SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (ctx, i) => _TaskRow(
+              task: _global[i],
+              index: i,
+              onTap:   () => _openDetail(_global[i]),
+              onCheck: () => _openVerification(_global[i]),
+            ),
+            childCount: _global.length,
+          ),
+        ),
+      ),
+    ];
   }
 
   Widget _statDivider() => Container(width: 0.5, height: 54, color: AppColors.separator);
@@ -783,7 +815,7 @@ class _WeekStripState extends State<_WeekStrip> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: selected
-                                  ? AppColors.label
+                                  ? AppColors.accent
                                   : Colors.transparent,
                               border: selected
                                   ? null
@@ -807,9 +839,7 @@ class _WeekStripState extends State<_WeekStrip> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: hasTask
-                                  ? (selected
-                                      ? AppColors.label
-                                      : AppColors.label2)
+                                  ? AppColors.accent.withValues(alpha: selected ? 1.0 : 0.65)
                                   : Colors.transparent,
                             ),
                           ),
@@ -856,20 +886,25 @@ class _InkFAB extends StatelessWidget {
   final VoidCallback onTap;
   final IconData icon;
   final bool filled;   // filled ink (primary +) vs. glassy outline (secondary)
+  final bool accent;   // use AppColors.accent instead of pure ink (+ FAB)
   final int badge;     // small count chip; 0 = none
   const _InkFAB({
     required this.onTap,
     this.icon = Icons.add_rounded,
     this.filled = true,
+    this.accent = false,
     this.badge = 0,
   });
 
   @override
   Widget build(BuildContext context) {
+    final fillColor = accent
+        ? AppColors.accent
+        : (filled ? AppColors.label : AppColors.card);
     final fab = Container(
       width: 60, height: 60,
       decoration: BoxDecoration(
-        color: filled ? AppColors.label : AppColors.card,
+        color: fillColor,
         shape: BoxShape.circle,
         border: filled
             ? null
@@ -882,7 +917,7 @@ class _InkFAB extends StatelessWidget {
           ),
         ],
       ),
-      child: Icon(icon, color: filled ? AppColors.bg : AppColors.label, size: filled ? 30 : 26),
+      child: Icon(icon, color: (filled || accent) ? AppColors.bg : AppColors.label, size: filled ? 30 : 26),
     );
 
     return GestureDetector(

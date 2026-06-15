@@ -131,6 +131,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     scale: ref.watch(textScaleProvider),
                     onChanged: (s) => ref.read(textScaleProvider.notifier).set(s),
                   ),
+                  const SizedBox(height: 12),
+                  _AccentColorPicker(
+                    selected: ref.watch(accentColorProvider),
+                    onPick: (i) => ref.read(accentColorProvider.notifier).pick(i),
+                  ),
                   const SizedBox(height: 22),
 
                   // ── Calendars (Apple / Google via the phone) ──────
@@ -847,6 +852,78 @@ class _TextSizeSelector extends StatelessWidget {
             ),
           ),
       ]),
+    );
+  }
+}
+
+// ── Accent color picker ───────────────────────────────────────────────────────
+
+class _AccentColorPicker extends StatelessWidget {
+  final Color? selected;          // null = ink (monochrome)
+  final ValueChanged<int> onPick; // index into accentPresets
+  const _AccentColorPicker({required this.selected, required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.separator, width: 0.5),
+        boxShadow: cardShadow,
+      ),
+      child: Row(children: [
+        Icon(Icons.palette_outlined, size: 22, color: AppColors.label),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Text('Accent colour',
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.label)),
+        ),
+        const SizedBox(width: 8),
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          for (var i = 0; i < accentPresets.length; i++)
+            GestureDetector(
+              onTap: () => onPick(i),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: _dot(accentPresets[i], selected, i),
+              ),
+            ),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _dot(Color? preset, Color? sel, int idx) {
+    // idx 0 = ink/monochrome (show as label color)
+    final dotColor = preset ?? AppColors.label;
+    final isSelected = preset == null
+        ? sel == null
+        : (sel != null && sel == preset);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      width: isSelected ? 26 : 20,
+      height: isSelected ? 26 : 20,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: dotColor,
+        border: isSelected
+            ? Border.all(
+                color: AppColors.separator.withValues(alpha: 0.6), width: 3)
+            : null,
+        boxShadow: isSelected
+            ? [BoxShadow(color: dotColor.withValues(alpha: 0.45), blurRadius: 6)]
+            : null,
+      ),
+      // Show a small tick for the selected dot
+      child: isSelected
+          ? Icon(Icons.check_rounded, size: 12,
+              color: idx == 0 ? AppColors.bg : Colors.white)
+          : null,
     );
   }
 }

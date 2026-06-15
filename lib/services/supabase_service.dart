@@ -33,10 +33,25 @@ class SupabaseService {
     final end = tsToDb(DateTime(year, month + 1, 0, 23, 59, 59));
     final res = await client
         .from('tasks')
-        .select('id, scheduled_time, status')
+        .select('id, title, scheduled_time, status')
         .eq('user_id', userId)
         .gte('scheduled_time', start)
         .lte('scheduled_time', end);
+    return List<Map<String, dynamic>>.from(res);
+  }
+
+  /// Timeless reminders — tasks created without a deadline (bucket-list items).
+  /// These never become "overdue" and live in a dedicated ANYTIME section.
+  static Future<List<Map<String, dynamic>>> getGlobalReminders() async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return [];
+    final res = await client
+        .from('tasks')
+        .select()
+        .eq('user_id', userId)
+        .neq('status', 'verified')
+        .filter('scheduled_time', 'is', null)
+        .order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(res);
   }
 

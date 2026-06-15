@@ -33,12 +33,6 @@ class AppColors {
   /// Ink — the foreground / text / accent.
   static Color get label => _dark ? _inkDark : _inkLight;
 
-  /// Accent == ink. Selection is an inverted fill, not a hue.
-  static Color get accent     => label;
-  static Color get accentDark => label;
-  /// Text/icon colour that sits ON an inked (filled) surface.
-  static Color get onAccent => bg;
-
   // ── Elevated surfaces (subtle steps of ink on paper) ─────────────
   static Color get card => _dark ? const Color(0xFF161618) : Colors.white;
   static Color get bg2  => _dark ? const Color(0xFF202023) : const Color(0xFFECEBE6);
@@ -64,7 +58,18 @@ class AppColors {
   // Recommended blur radius for glass surfaces.
   static const double glassBlur = 22;
 
+  // ── Optional accent hue ──────────────────────────────────────────
+  // null  = pure ink (monochrome default, follows theme).
+  // When set, used for reminder dots, selected-day circles, the add FAB.
+  // Changed via AccentColorNotifier; synced in app.dart builder each frame.
+  static Color? _accentHue;
+  static set accentHue(Color? c) => _accentHue = c;
+
   // ── Semantic names kept for compatibility — all collapse to ink ──
+  // accent: decorative uses (dots, FAB, selection); falls back to ink.
+  static Color get accent       => _accentHue ?? label;
+  static Color get accentDark   => label;
+  static Color get onAccent     => bg;
   static Color get success       => label;
   static Color get successBg     => label.withValues(alpha: 0.08);
   static Color get warning       => label;

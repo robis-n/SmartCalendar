@@ -18,9 +18,10 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   final _title = TextEditingController();
   final _desc  = TextEditingController();
   late DateTime _deadline;
-  String _priority = 'medium';
-  bool   _saving   = false;
-  bool   _syncCal  = false;
+  String _priority   = 'medium';
+  bool   _saving     = false;
+  bool   _noDeadline = false; // true → timeless bucket-list reminder
+  bool   _syncCal    = false;
   String? _syncCalId;
   List<WritableCalendar> _writableCals = [];
 
@@ -197,7 +198,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         'user_id':        uid,
         'title':          _title.text.trim(),
         'description':    _desc.text.trim(),
-        'scheduled_time': tsToDb(_deadline),
+        if (!_noDeadline) 'scheduled_time': tsToDb(_deadline),
         'status':         'pending',
         'ai_generated':   false,
         'priority':       _priority,
@@ -205,9 +206,11 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       if (_collab.isNotEmpty) {
         await SupabaseService.addCollaborators(created['id'], _collab.toList());
       }
-      await NotificationService().scheduleTaskNotifications(
-          taskId: created['id'], taskTitle: _title.text.trim(), deadline: _deadline,
-          priority: _priority);
+      if (!_noDeadline) {
+        await NotificationService().scheduleTaskNotifications(
+            taskId: created['id'], taskTitle: _title.text.trim(), deadline: _deadline,
+            priority: _priority);
+      }
       // Optionally mirror the reminder into Apple/Google Calendar.
       if (_syncCal && _syncCalId != null) {
         await DeviceCalendarService.createEvent(
@@ -329,17 +332,59 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           // Schedule
           _sectionLabel('SCHEDULE'),
           const SizedBox(height: 10),
-          Row(children: [
-            Expanded(child: _chipButton(
-              icon: Icons.calendar_today_outlined,
-              label: _dateLabel, onTap: _pickDate,
-            )),
-            const SizedBox(width: 10),
-            Expanded(child: _chipButton(
-              icon: Icons.access_time_outlined,
-              label: _timeLabel, onTap: _pickTime,
-            )),
-          ]),
+          // No-deadline toggle: turns this into a timeless bucket-list item.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() { _noDeadline = !_noDeadline; _syncCal = false; }),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: _noDeadline ? AppColors.label : AppColors.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _noDeadline ? AppColors.label : AppColors.separator,
+                  width: 1,
+                ),
+              ),
+              child: Row(children: [
+                Icon(Icons.all_inclusive_rounded, size: 18,
+                    color: _noDeadline ? AppColors.bg : AppColors.label2),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('No deadline',
+                        style: TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600,
+                            color: _noDeadline ? AppColors.bg : AppColors.label)),
+                    Text('Added to your Anytime list',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: _noDeadline
+                                ? AppColors.bg.withValues(alpha: 0.6)
+                                : AppColors.label3)),
+                  ]),
+                ),
+                Icon(_noDeadline ? Icons.check_rounded : Icons.chevron_right_rounded,
+                    size: 18,
+                    color: _noDeadline ? AppColors.bg : AppColors.label3),
+              ]),
+            ),
+          ),
+          if (!_noDeadline) ...[
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: _chipButton(
+                icon: Icons.calendar_today_outlined,
+                label: _dateLabel, onTap: _pickDate,
+              )),
+              const SizedBox(width: 10),
+              Expanded(child: _chipButton(
+                icon: Icons.access_time_outlined,
+                label: _timeLabel, onTap: _pickTime,
+              )),
+            ]),
+          ],
           const SizedBox(height: 24),
 
           // Reminders — priority IS nudge intensity, not abstract importance.
@@ -388,8 +433,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Calendar sync (only shown when writable calendars exist)
-          if (_writableCals.isNotEmpty) ...[
+          // Calendar sync (only shown when there's a deadline and writable cals exist)
+          if (!_noDeadline && _writableCals.isNotEmpty) ...[
             _sectionLabel('CALENDAR'),
             const SizedBox(height: 10),
             Container(

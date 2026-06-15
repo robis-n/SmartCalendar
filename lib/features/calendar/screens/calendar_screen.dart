@@ -1,6 +1,7 @@
 import 'dart:math' show max;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
@@ -136,15 +137,27 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void _onScaleEnd(ScaleEndDetails d) {
     if (!_pinching) return;
     final s = _pinch;
-    setState(() {
-      if (s < 0.80) {
-        _view = _zoomedOut;
-      } else if (s > 1.22) {
-        _view = _zoomedIn;
-      }
-      _pinching = false;
-      _pinch = 1.0;
-    });
+    if (s < 0.80) {
+      _switchView(_zoomedOut);
+    } else if (s > 1.22) {
+      _switchView(_zoomedIn);
+    }
+    setState(() { _pinching = false; _pinch = 1.0; });
+  }
+
+  // Switch view mode and — when entering week view — jump to the page that
+  // contains the currently selected/tapped day, not always the current week.
+  void _switchView(_ViewMode next) {
+    if (next == _ViewMode.week && _view != _ViewMode.week) {
+      final targetMonday = _mondayOf(_selected);
+      final diff = targetMonday.difference(_weekAnchor).inDays ~/ 7;
+      final targetPage = _weekAnchorPage + diff;
+      // Jump immediately (no animation flicker) then rebuild.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_weekCtrl.hasClients) _weekCtrl.jumpToPage(targetPage);
+      });
+    }
+    setState(() => _view = next);
   }
 
   @override
@@ -239,8 +252,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   key: ValueKey(_view),
                   child: switch (_view) {
                     _ViewMode.year => _YearView(
-                      onMonthTap: (_) =>
-                          setState(() => _view = _ViewMode.month),
+                      onMonthTap: (_) => _switchView(_ViewMode.month),
                     ),
                     _ViewMode.month => _buildMonthView(),
                     _ViewMode.week  => _buildWeekView(),
@@ -255,7 +267,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           right: 6, top: 0, bottom: 0,
           child: Center(child: _ZoomRail(
             view: _view,
-            onPick: (v) => setState(() => _view = v),
+            onPick: _switchView,
           )),
         ),
         ]),
@@ -362,7 +374,10 @@ class _ZoomRail extends StatelessWidget {
               for (final (mode, letter) in _items)
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => onPick(mode),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    onPick(mode);
+                  },
                   child: SizedBox(
                     width: 38, height: seg,
                     child: Center(
@@ -648,8 +663,8 @@ class _MonthGridState extends State<_MonthGrid> {
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
                                       color: reminders[r].status == 'verified'
-                                          ? AppColors.label.withValues(alpha: 0.35)
-                                          : AppColors.label,
+                                          ? AppColors.accent.withValues(alpha: 0.30)
+                                          : AppColors.accent,
                                     ),
                                   ),
                               ],
@@ -785,16 +800,20 @@ class _WeekTimeline extends StatefulWidget {
 class _WeekTimelineState extends State<_WeekTimeline> {
   List<List<_WeekEvent>> _events = List.generate(7, (_) => []);
   final _scrollCtrl = ScrollController();
+  int _lastHapticHour = -1;
 
-  static const double _hourH = 56.0;
-  static const int _startH = 6;
-  static const int _endH   = 23;
+  // 7 AM – 10 PM at 44 px/h = 660 px total — fits most screens without
+  // needing to scroll to see the evening (previously 56 px/h was 952 px).
+  static const double _hourH  = 44.0;
+  static const int    _startH = 7;
+  static const int    _endH   = 22;
   static const double _labelW = 46.0;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _scrollCtrl.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.jumpTo((8 - _startH) * _hourH);
@@ -802,8 +821,18 @@ class _WeekTimelineState extends State<_WeekTimeline> {
     });
   }
 
+  void _onScroll() {
+    if (!_scrollCtrl.hasClients) return;
+    final hourIdx = (_scrollCtrl.offset / _hourH).floor();
+    if (hourIdx != _lastHapticHour) {
+      _lastHapticHour = hourIdx;
+      HapticFeedback.selectionClick();
+    }
+  }
+
   @override
   void dispose() {
+    _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     super.dispose();
   }
@@ -918,9 +947,9 @@ class _WeekTimelineState extends State<_WeekTimeline> {
                     width: 28, height: 28,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: isToday ? AppColors.label : Colors.transparent,
+                      color: isToday ? AppColors.accent : Colors.transparent,
                       border: (isSel && !isToday)
-                          ? Border.all(color: AppColors.label, width: 1.5)
+                          ? Border.all(color: AppColors.accent, width: 1.5)
                           : null,
                     ),
                     alignment: Alignment.center,

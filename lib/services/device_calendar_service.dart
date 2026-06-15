@@ -197,11 +197,20 @@ class DeviceCalendarService {
         );
         if (!res.isSuccess || res.data == null) continue;
         for (final e in res.data!) {
+          final eStart = e.start?.toLocal();
+          final eEnd   = e.end?.toLocal();
+          // Treat as all-day when: the plugin says so, OR the event
+          // spans >= 20 hours (whole-day or multi-day event in Apple/Google
+          // Calendar that wasn't flagged allDay by the plugin).
+          final dur = (eStart != null && eEnd != null)
+              ? eEnd.difference(eStart)
+              : Duration.zero;
+          final derivedAllDay = (e.allDay == true) || dur.inHours >= 20;
           out.add(DeviceEvent(
             title: e.title ?? '(untitled)',
-            start: e.start?.toLocal(),
-            end:   e.end?.toLocal(),
-            allDay: e.allDay ?? false,
+            start: eStart,
+            end:   eEnd,
+            allDay: derivedAllDay,
             calendarName: cal.name ?? '',
             color: cal.color,
           ));

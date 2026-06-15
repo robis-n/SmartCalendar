@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'app_theme.dart';
 
 /// Name of the Hive box opened in main().
 const String kSettingsBox = 'settings';
-const String _kThemeKey   = 'theme_mode';
+const String _kThemeKey     = 'theme_mode';
 const String _kTextScaleKey = 'text_scale';
+const String _kAccentKey    = 'accent_color_idx';
 
 /// Persisted app theme mode (light / dark / system). Defaults to dark.
 final themeModeProvider =
@@ -59,6 +61,47 @@ class TextScaleNotifier extends StateNotifier<double> {
     state = scale;
     try {
       Hive.box(kSettingsBox).put(_kTextScaleKey, scale);
+    } catch (_) {}
+  }
+}
+
+// ── Accent color ──────────────────────────────────────────────────────────────
+// 6 preset hues + null (ink/monochrome default). Applied to reminder dots,
+// selected-day circles, and the primary + FAB. Text stays monochrome always.
+const List<Color?> accentPresets = [
+  null,                    // Ink — monochrome
+  Color(0xFF007AFF),       // Blue
+  Color(0xFF34C759),       // Green
+  Color(0xFFFF9500),       // Orange
+  Color(0xFFAF52DE),       // Purple
+  Color(0xFFFF3B30),       // Red
+];
+
+final accentColorProvider =
+    StateNotifierProvider<AccentColorNotifier, Color?>(
+        (ref) => AccentColorNotifier());
+
+class AccentColorNotifier extends StateNotifier<Color?> {
+  AccentColorNotifier() : super(_load()) {
+    AppColors.accentHue = state;
+  }
+
+  static Color? _load() {
+    try {
+      final i = Hive.box(kSettingsBox).get(_kAccentKey, defaultValue: 0) as int;
+      return i >= 0 && i < accentPresets.length ? accentPresets[i] : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void pick(int index) {
+    if (index < 0 || index >= accentPresets.length) return;
+    final c = accentPresets[index];
+    state = c;
+    AppColors.accentHue = c;
+    try {
+      Hive.box(kSettingsBox).put(_kAccentKey, index);
     } catch (_) {}
   }
 }
