@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../services/password_security_service.dart';
 import '../../../services/supabase_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -99,10 +100,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _signUp() async {
     final uname = _username.text.trim().toLowerCase();
+    final pw    = _password.text.trim();
     if (uname.length < 3) { _snack('Pick a username (3+ characters)'); return; }
     if (_usernameOk == false) { _snack('That username is taken'); return; }
-    if (!_email.text.contains('@'))   { _snack('Enter a valid email'); return; }
-    if (_password.text.length < 6)    { _snack('Password must be 6+ characters'); return; }
+    if (!_email.text.contains('@')) { _snack('Enter a valid email'); return; }
+    // Strength rule (min 8 chars, letters + numbers).
+    final weak = PasswordSecurity.weakness(pw);
+    if (weak != null) { _snack(weak); return; }
 
     setState(() => _loading = true);
     try {
@@ -110,10 +114,18 @@ class _LoginScreenState extends State<LoginScreen> {
       final stillFree = await SupabaseService.isUsernameAvailable(uname);
       if (!stillFree) { _snack('That username was just taken — try another'); return; }
 
+      // Reject passwords found in known breaches (HaveIBeenPwned, k-anonymity
+      // — the password never leaves the device). Free alternative to the
+      // Supabase Pro leaked-password protection. Fails open if offline.
+      if (await PasswordSecurity.pwnedCount(pw) > 0) {
+        _snack('That password has appeared in data breaches — pick a stronger one');
+        return;
+      }
+
       // The DB trigger reads raw_user_meta_data.username to set the profile row.
       await Supabase.instance.client.auth.signUp(
         email: _email.text.trim(),
-        password: _password.text.trim(),
+        password: pw,
         data: {'username': uname},
       );
       _snack('Check your email to confirm your account ✉️');
