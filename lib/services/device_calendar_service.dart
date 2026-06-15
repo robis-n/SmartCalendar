@@ -1,6 +1,7 @@
 import 'package:device_calendar/device_calendar.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/timezone.dart' as tz;
 import '../core/theme/theme_provider.dart';
 
@@ -58,24 +59,27 @@ class DeviceCalendarInfo {
 /// EventKit (iOS) / CalendarProvider (Android). On iOS this covers
 /// Apple Calendar *and* any Google accounts synced to the phone.
 class DeviceCalendarService {
-  static const String kShowDeviceCalendarsKey = 'show_device_calendars';
-  // IDs the user has explicitly hidden. Anything *not* in here is shown,
-  // so newly-synced calendars appear by default (matches Apple Calendar).
-  static const String kHiddenCalendarsKey = 'hidden_calendar_ids';
   static final _plugin = DeviceCalendarPlugin();
+
+  // Settings are scoped PER ACCOUNT (keyed by the signed-in user id) so a new
+  // or switched-to account starts clean — calendars off, nothing inherited
+  // from whoever was signed in before. Defaults: off / nothing hidden.
+  static String _uid() =>
+      Supabase.instance.client.auth.currentUser?.id ?? 'anon';
+  static String get _enabledKey => 'show_device_calendars::${_uid()}';
+  static String get _hiddenKey => 'hidden_calendar_ids::${_uid()}';
 
   static bool get enabled =>
       !kIsWeb &&
-      (Hive.box(kSettingsBox).get(kShowDeviceCalendarsKey, defaultValue: false)
-          as bool);
+      (Hive.box(kSettingsBox).get(_enabledKey, defaultValue: false) as bool);
 
   static Future<void> setEnabled(bool v) async =>
-      Hive.box(kSettingsBox).put(kShowDeviceCalendarsKey, v);
+      Hive.box(kSettingsBox).put(_enabledKey, v);
 
   /// Calendar IDs the user has switched off in the visibility chooser.
   static Set<String> hiddenCalendarIds() {
     final raw = Hive.box(kSettingsBox)
-        .get(kHiddenCalendarsKey, defaultValue: const <String>[]) as List;
+        .get(_hiddenKey, defaultValue: const <String>[]) as List;
     return raw.map((e) => e.toString()).toSet();
   }
 
@@ -86,7 +90,7 @@ class DeviceCalendarService {
     } else {
       set.remove(id);
     }
-    await Hive.box(kSettingsBox).put(kHiddenCalendarsKey, set.toList());
+    await Hive.box(kSettingsBox).put(_hiddenKey, set.toList());
   }
 
   // Classify a calendar's owning account so the UI can say "Apple"/"Google".

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -93,6 +94,27 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.of(context).pop(true);
     } else {
       context.go('/dashboard');
+    }
+  }
+
+  // ── Social sign-in (Apple / Google) ────────────────────────────────────────
+  // Opens the provider flow; completion arrives via the deep-link redirect and
+  // the global onAuthStateChange listener routes to the dashboard. Requires the
+  // provider to be enabled in Supabase + native redirect scheme configured.
+  Future<void> _oauth(OAuthProvider provider) async {
+    setState(() => _loading = true);
+    try {
+      await Supabase.instance.client.auth.signInWithOAuth(
+        provider,
+        redirectTo:
+            kIsWeb ? null : 'io.supabase.smartcalendar://login-callback',
+        authScreenLaunchMode: LaunchMode.externalApplication,
+      );
+      // Session resolves asynchronously via the redirect; nothing else to do.
+    } catch (e) {
+      _snack(_friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -235,6 +257,33 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 18),
 
+                // ── "or" divider ──
+                Row(children: [
+                  Expanded(child: Container(height: 0.5, color: AppColors.separator)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text('or',
+                        style: TextStyle(color: AppColors.label3, fontSize: 13)),
+                  ),
+                  Expanded(child: Container(height: 0.5, color: AppColors.separator)),
+                ]),
+                const SizedBox(height: 16),
+
+                // ── Apple / Google ──
+                _SocialButton(
+                  icon: Icons.apple,
+                  label: 'Continue with Apple',
+                  onTap: _loading ? null : () => _oauth(OAuthProvider.apple),
+                ),
+                const SizedBox(height: 10),
+                _SocialButton(
+                  icon: Icons.g_mobiledata_rounded,
+                  iconSize: 30,
+                  label: 'Continue with Google',
+                  onTap: _loading ? null : () => _oauth(OAuthProvider.google),
+                ),
+                const SizedBox(height: 18),
+
                 // Mode toggle
                 GestureDetector(
                   onTap: _loading ? null : () => setState(() {
@@ -339,6 +388,42 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     ),
   );
+}
+
+/// Pill button for a third-party sign-in provider (ink outline, paper fill).
+class _SocialButton extends StatelessWidget {
+  final IconData icon;
+  final double iconSize;
+  final String label;
+  final VoidCallback? onTap;
+  const _SocialButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.iconSize = 22,
+  });
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 54,
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.separator, width: 1),
+          ),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(icon, size: iconSize, color: AppColors.label),
+            const SizedBox(width: 10),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.label)),
+          ]),
+        ),
+      );
 }
 
 /// Gentle fade + rise on first appear — silky entrance.

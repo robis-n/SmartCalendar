@@ -11,6 +11,7 @@ class AccountabilityApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final router    = ref.watch(appRouterProvider);
     final themeMode = ref.watch(themeModeProvider);
+    final textScale = ref.watch(textScaleProvider);
 
     return MaterialApp.router(
       title: 'SmartCalendar',
@@ -29,7 +30,13 @@ class AccountabilityApp extends ConsumerWidget {
       // direct AppColors.* getters resolve correctly every frame.
       builder: (context, child) {
         AppColors.dark = Theme.of(context).brightness == Brightness.dark;
-        return child ?? const SizedBox.shrink();
+        // Apply the user's text-size choice globally, ignoring any extreme OS
+        // setting so the layout stays in proportion.
+        return MediaQuery.withClampedTextScaling(
+          minScaleFactor: textScale,
+          maxScaleFactor: textScale,
+          child: child ?? const SizedBox.shrink(),
+        );
       },
     );
   }

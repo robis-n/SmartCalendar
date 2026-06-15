@@ -126,6 +126,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     mode: themeMode,
                     onChanged: (m) => ref.read(themeModeProvider.notifier).set(m),
                   ),
+                  const SizedBox(height: 12),
+                  _TextSizeSelector(
+                    scale: ref.watch(textScaleProvider),
+                    onChanged: (s) => ref.read(textScaleProvider.notifier).set(s),
+                  ),
                   const SizedBox(height: 22),
 
                   // ── Calendars (Apple / Google via the phone) ──────
@@ -498,6 +503,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   void _pickLeadTime() => showModalBottomSheet(
     context: context,
+    useRootNavigator: true, // cover the floating nav bar
     backgroundColor: AppColors.card,
     shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -651,6 +657,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   void _pickVisibility() => showModalBottomSheet(
     context: context,
+    useRootNavigator: true, // cover the floating nav bar
     backgroundColor: AppColors.card,
     shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -724,6 +731,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _sheet(String title, String body) => showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useRootNavigator: true, // cover the floating nav bar
     backgroundColor: AppColors.card,
     shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -787,6 +795,58 @@ class _ThemeSelector extends StatelessWidget {
           ),
         );
       }).toList()),
+    );
+  }
+}
+
+// ── Text-size segmented selector (S / M / L / XL) ─────────────────────────────
+
+class _TextSizeSelector extends StatelessWidget {
+  final double scale;
+  final ValueChanged<double> onChanged;
+  const _TextSizeSelector({required this.scale, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.separator, width: 0.5),
+        boxShadow: cardShadow,
+      ),
+      child: Row(children: [
+        for (var i = 0; i < TextScaleNotifier.steps.length; i++)
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onChanged(TextScaleNotifier.steps[i]),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  color: scale == TextScaleNotifier.steps[i]
+                      ? AppColors.label
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Center(
+                  child: Text('A',
+                      style: TextStyle(
+                        // Preview the size; ignore the global scaler here so
+                        // the chips stay aligned.
+                        fontSize: 12 + i * 3.0,
+                        fontWeight: FontWeight.w800,
+                        color: scale == TextScaleNotifier.steps[i]
+                            ? AppColors.bg
+                            : AppColors.label3,
+                      )),
+                ),
+              ),
+            ),
+          ),
+      ]),
     );
   }
 }

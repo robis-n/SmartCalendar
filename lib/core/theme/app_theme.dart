@@ -49,11 +49,20 @@ class AppColors {
   static Color get separator   => label.withValues(alpha: 0.10);
   static Color get accentLight => label.withValues(alpha: 0.07); // faint ink tint bg
 
-  // ── Glass (Apple-style translucent chrome) ───────────────────────
-  static Color get glass       => _dark
-      ? Colors.white.withValues(alpha: 0.06)
-      : Colors.white.withValues(alpha: 0.60);
-  static Color get glassBorder => label.withValues(alpha: 0.12);
+  // ── Glass (iOS "material" translucent chrome) ────────────────────
+  // Tuned to approximate UIBlurEffect's regular material: a fairly opaque
+  // translucent fill (so text stays legible over busy content) plus a faint
+  // 1px top highlight. Pair with BackdropFilter(sigma 22) at the call site.
+  //   light → near-white at 78%   dark → elevated charcoal at ~70%
+  static Color get glass => _dark
+      ? const Color(0xFF1C1C1E).withValues(alpha: 0.72)
+      : Colors.white.withValues(alpha: 0.78);
+  // Subtle bright rim along the edge, like light catching glass.
+  static Color get glassBorder =>
+      _dark ? Colors.white.withValues(alpha: 0.14)
+            : Colors.white.withValues(alpha: 0.55);
+  // Recommended blur radius for glass surfaces.
+  static const double glassBlur = 22;
 
   // ── Semantic names kept for compatibility — all collapse to ink ──
   static Color get success       => label;

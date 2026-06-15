@@ -37,6 +37,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   static Set<int> _cWeekDays = {};
   static String _cTier = AppConstants.tierFree;
   static bool _hasCache = false;
+  static String? _cUid; // which account the cache belongs to
 
   static DateTime get _mondayOfThisWeek {
     final n = DateTime.now();
@@ -55,8 +56,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(_refreshClock);
     });
-    // Seed from cache for an instant paint, then refresh silently.
-    if (_hasCache) {
+    // Seed from cache for an instant paint, then refresh silently — but only
+    // if the cache belongs to the account that's signed in now (switching
+    // accounts must never show the previous user's tasks).
+    final uid = SupabaseService.client.auth.currentUser?.id;
+    if (_hasCache && _cUid == uid) {
       _tasks = _cTasks;
       _shared = _cShared;
       _undone = _cUndone;
@@ -92,8 +96,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ── Data ───────────────────────────────────────────────
 
   Future<void> _load() async {
-    // Spinner only when there's nothing to show yet; otherwise refresh silently.
-    if (!_hasCache) setState(() => _loading = true);
+    // Spinner only when there's nothing valid to show yet; otherwise refresh
+    // silently. A cache from another account doesn't count.
+    final uid = SupabaseService.client.auth.currentUser?.id;
+    if (!_hasCache || _cUid != uid) {
+      if (mounted) setState(() => _loading = true);
+    }
     final tasks    = await SupabaseService.getTodayTasks();
     final shared   = await SupabaseService.getSharedTasksForDate(DateTime.now());
     final profile  = await SupabaseService.getUserProfile();
@@ -124,6 +132,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _cTasks = tasks; _cShared = shared; _cUndone = undone; _cWeek = week;
     _cWeekDays = weekDays;
     _cTier = profile?['subscription_tier'] ?? AppConstants.tierFree;
+    _cUid = uid;
     _hasCache = true;
 
     if (mounted) {
@@ -676,6 +685,17 @@ class _WeekStripState extends State<_WeekStrip> {
   void initState() {
     super.initState();
     _cache[0] = widget.initialOffsets; // seed: no fetch flicker for this week
+  }
+
+  @override
+  void didUpdateWidget(covariant _WeekStrip old) {
+    super.didUpdateWidget(old);
+    // Home reloaded (e.g. a reminder was just added) → refresh the current
+    // week's dots so a freshly-added day lights up immediately.
+    final a = old.initialOffsets, b = widget.initialOffsets;
+    if (a.length != b.length || !a.containsAll(b)) {
+      setState(() => _cache[0] = widget.initialOffsets);
+    }
   }
 
   @override

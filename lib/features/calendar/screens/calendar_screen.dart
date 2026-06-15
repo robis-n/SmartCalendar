@@ -94,16 +94,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  void _cycleView() {
-    setState(() {
-      _view = switch (_view) {
-        _ViewMode.year  => _ViewMode.month,
-        _ViewMode.month => _ViewMode.week,
-        _ViewMode.week  => _ViewMode.year,
-      };
-    });
-  }
-
   // ── Pinch-zoom (Apple-Calendar feel) ───────────────────────────────────────
   // Live finger tracking drives a damped scale on the whole grid; on release
   // we either commit to the next/prev zoom level (which the AnimatedSwitcher
@@ -166,7 +156,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
         onScaleStart: _onScaleStart,
         onScaleUpdate: _onScaleUpdate,
         onScaleEnd: _onScaleEnd,
-        child: Column(children: [
+        child: Stack(children: [
+        Column(children: [
           // ── Top bar ────────────────────────────────────────
           SafeArea(
             bottom: false,
@@ -180,31 +171,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         color: AppColors.label,
                         letterSpacing: -1.2)),
                 const Spacer(),
-                GestureDetector(
-                  onTap: _cycleView,
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                    decoration: BoxDecoration(
-                      color: AppColors.bg2,
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(
-                          color: AppColors.separator, width: 0.8),
-                    ),
-                    child: Text(
-                      switch (_view) {
-                        _ViewMode.year  => 'Year',
-                        _ViewMode.month => 'Month',
-                        _ViewMode.week  => 'Week',
-                      },
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.label2),
-                    ),
-                  ),
-                ),
                 GestureDetector(
                   onTap: _jumpToToday,
                   child: Container(
@@ -284,6 +250,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ),
           ),
         ]),
+        // ── Right-edge zoom rail (Year / Month / Week) ──
+        Positioned(
+          right: 6, top: 0, bottom: 0,
+          child: Center(child: _ZoomRail(
+            view: _view,
+            onPick: (v) => setState(() => _view = v),
+          )),
+        ),
+        ]),
       ),
     );
   }
@@ -337,6 +312,77 @@ class _CalendarScreenState extends State<CalendarScreen> {
           onTapDay: _openDay,
         ),
       );
+}
+
+// ── Right-edge zoom rail ──────────────────────────────────────────────────────
+// A vertical glass pill: Year / Month / Week, with a sliding ink indicator.
+// Tapping a level switches the view; mirrors the pinch zoom granularity.
+class _ZoomRail extends StatelessWidget {
+  final _ViewMode view;
+  final ValueChanged<_ViewMode> onPick;
+  const _ZoomRail({required this.view, required this.onPick});
+
+  static const _items = [
+    (_ViewMode.year, 'Y'),
+    (_ViewMode.month, 'M'),
+    (_ViewMode.week, 'W'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    const seg = 40.0;
+    final activeIndex = _items.indexWhere((e) => e.$1 == view);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(
+            sigmaX: AppColors.glassBlur, sigmaY: AppColors.glassBlur),
+        child: Container(
+          width: 38,
+          decoration: BoxDecoration(
+            color: AppColors.glass,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: AppColors.glassBorder, width: 0.8),
+            boxShadow: cardShadow,
+          ),
+          child: Stack(children: [
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              top: activeIndex * seg + 4,
+              left: 4, right: 4, height: seg - 8,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.label,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            Column(mainAxisSize: MainAxisSize.min, children: [
+              for (final (mode, letter) in _items)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onPick(mode),
+                  child: SizedBox(
+                    width: 38, height: seg,
+                    child: Center(
+                      child: Text(letter,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: mode == view
+                                ? AppColors.bg
+                                : AppColors.label3,
+                          )),
+                    ),
+                  ),
+                ),
+            ]),
+          ]),
+        ),
+      ),
+    );
+  }
 }
 
 // ── Year view — 3 × 4 mini months ─────────────────────────────────────────────
@@ -568,11 +614,14 @@ class _MonthGridState extends State<_MonthGrid> {
 
             final today = _isToday(day);
             final sel   = _isSel(day);
-            // Defensive: if the user turned phone calendars off, never show
-            // device chips even if a stale fetch is still cached.
-            final chips = (_chips[day] ?? [])
+            final all = (_chips[day] ?? [])
                 .where((c) => c.isTask || DeviceCalendarService.enabled)
                 .toList();
+            // The app's whole point: combine reminders + events but keep them
+            // distinct. Reminders sit ABOVE the number (ink dots); events sit
+            // BELOW (coloured dot+label). Never mixed.
+            final reminders = all.where((c) => c.isTask).toList();
+            final events    = all.where((c) => !c.isTask).toList();
 
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
@@ -583,40 +632,59 @@ class _MonthGridState extends State<_MonthGrid> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const SizedBox(height: 4),
-                    // Day number bubble
+                    const SizedBox(height: 3),
+                    // ── Reminders — dots above the number ──
+                    SizedBox(
+                      height: 7,
+                      child: reminders.isEmpty
+                          ? null
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                for (var r = 0; r < reminders.length && r < 4; r++)
+                                  Container(
+                                    width: 5, height: 5,
+                                    margin: const EdgeInsets.symmetric(horizontal: 1),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: reminders[r].status == 'verified'
+                                          ? AppColors.label.withValues(alpha: 0.35)
+                                          : AppColors.label,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                    ),
+                    const SizedBox(height: 2),
+                    // ── Day number ──
                     Align(
                       child: Container(
-                        width: 32,
-                        height: 32,
+                        width: 34, height: 34,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: today ? AppColors.label : Colors.transparent,
                           border: (sel && !today)
-                              ? Border.all(
-                                  color: AppColors.label, width: 1.6)
+                              ? Border.all(color: AppColors.label, width: 1.6)
                               : null,
                         ),
                         alignment: Alignment.center,
                         child: Text('$day',
                             style: TextStyle(
-                                fontSize: 14,
+                                fontSize: 16,
                                 fontWeight: (today || sel)
                                     ? FontWeight.w700
-                                    : FontWeight.w500,
-                                color: today
-                                    ? AppColors.bg
-                                    : AppColors.label)),
+                                    : FontWeight.w600,
+                                color: today ? AppColors.bg : AppColors.label)),
                       ),
                     ),
                     const SizedBox(height: 2),
-                    // Event chips (max 2 + overflow badge)
-                    for (var e = 0; e < chips.length && e < 2; e++)
-                      _Chip(chip: chips[e], onToday: today),
-                    if (chips.length > 2)
+                    // ── Events — dot+label below ──
+                    for (var e = 0; e < events.length && e < 2; e++)
+                      _Chip(chip: events[e], onToday: today),
+                    if (events.length > 2)
                       Padding(
                         padding: const EdgeInsets.only(top: 1, left: 2),
-                        child: Text('+${chips.length - 2}',
+                        child: Text('+${events.length - 2}',
                             style: TextStyle(
                                 fontSize: 8.5,
                                 color: AppColors.label3,
@@ -927,37 +995,31 @@ class _WeekTimelineState extends State<_WeekTimeline> {
                 child: SizedBox(
                   height: totalH,
                   child: Stack(children: [
-                    // Hour lines + labels
+                    // Hour gridlines — the hairline sits EXACTLY at the hour's
+                    // y so event blocks (anchored to the same y) line up. The
+                    // label is centred on the line, not pushing it down.
+                    ...List.generate(_endH - _startH + 1, (i) {
+                      final y = i * _hourH + 12;
+                      return Positioned(
+                        top: y, left: _labelW, right: 0, height: 0.5,
+                        child: Container(color: AppColors.separator),
+                      );
+                    }),
                     ...List.generate(_endH - _startH + 1, (i) {
                       final hour = _startH + i;
                       final y    = i * _hourH + 12;
                       return Positioned(
-                        top: y, left: 0, right: 0,
-                        child: Row(children: [
-                          SizedBox(
-                            width: _labelW,
-                            child: Padding(
-                              padding:
-                                  const EdgeInsets.only(right: 6),
-                              child: Text(
-                                hour == 12
-                                    ? '12 PM'
-                                    : hour < 12
-                                        ? '$hour AM'
-                                        : '${hour - 12} PM',
-                                textAlign: TextAlign.right,
-                                style: TextStyle(
-                                    fontSize: 9,
-                                    color: AppColors.label3,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                              child: Container(
-                                  height: 0.5,
-                                  color: AppColors.separator)),
-                        ]),
+                        top: y - 6, left: 0, width: _labelW - 6,
+                        child: Text(
+                          hour == 12
+                              ? '12 PM'
+                              : hour < 12 ? '$hour AM' : '${hour - 12} PM',
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                              fontSize: 9,
+                              color: AppColors.label3,
+                              fontWeight: FontWeight.w600),
+                        ),
                       );
                     }),
 
@@ -969,26 +1031,24 @@ class _WeekTimelineState extends State<_WeekTimeline> {
                       child: Container(color: AppColors.separator),
                     )),
 
-                    // Current-time red line
-                    if (_nowLineY != null)
+                    // Current-time line — hairline exactly on the minute, dot
+                    // centred on it.
+                    if (_nowLineY != null) ...[
                       Positioned(
-                        top: _nowLineY! + 12,
-                        left: _labelW,
-                        right: 0,
-                        child: Row(children: [
-                          Container(
-                              width: 7,
-                              height: 7,
-                              decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.red)),
-                          Expanded(
-                              child: Container(
-                                  height: 1.5,
-                                  color: Colors.red
-                                      .withValues(alpha: 0.8))),
-                        ]),
+                        top: _nowLineY! + 12 - 0.75,
+                        left: _labelW, right: 0, height: 1.5,
+                        child: Container(
+                            color: Colors.red.withValues(alpha: 0.8)),
                       ),
+                      Positioned(
+                        top: _nowLineY! + 12 - 3.5,
+                        left: _labelW - 3.5,
+                        child: Container(
+                            width: 7, height: 7,
+                            decoration: const BoxDecoration(
+                                shape: BoxShape.circle, color: Colors.red)),
+                      ),
+                    ],
 
                     // Event blocks
                     for (var day = 0; day < 7; day++)
@@ -1159,7 +1219,8 @@ class _DaySheetState extends State<_DaySheet> {
       builder: (ctx, scrollCtrl) => ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+          filter: ImageFilter.blur(
+              sigmaX: AppColors.glassBlur, sigmaY: AppColors.glassBlur),
           child: Container(
             decoration: BoxDecoration(
               color: AppColors.glass,

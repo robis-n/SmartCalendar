@@ -1,5 +1,4 @@
 import 'dart:ui';
-import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -71,36 +70,13 @@ class _MainShellState extends State<MainShell> {
       extendBody: true,
       backgroundColor: AppColors.bg,
       body: ClipRect(
-        // Explicit directional push: the incoming screen enters from the side
-        // you're moving toward and the outgoing one leaves the opposite way.
-        //   moving right (→ higher tab): new from RIGHT, old exits LEFT
-        //   moving left  (→ lower tab):  new from LEFT,  old exits RIGHT
-        // PageTransitionSwitcher gives each child its own primary (entering)
-        // and secondary (being covered) animation, so the two slide as a pair.
-        child: PageTransitionSwitcher(
-          duration: const Duration(milliseconds: 300),
-          transitionBuilder: (child, primary, secondary) {
-            final dx = _dir.toDouble();
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: Offset(dx, 0), end: Offset.zero,
-              ).animate(CurvedAnimation(
-                  parent: primary, curve: Curves.easeOutCubic)),
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: Offset.zero, end: Offset(-dx, 0),
-                ).animate(CurvedAnimation(
-                    parent: secondary, curve: Curves.easeInCubic)),
-                child: FadeTransition(opacity: primary, child: child),
-              ),
-            );
-          },
-          child: KeyedSubtree(
-            key: ValueKey(routeIndex),
-            // Isolate each tab's painting so the glass-blur nav doesn't force
-            // full-screen repaints mid-animation (a source of the lag).
-            child: RepaintBoundary(child: widget.child),
-          ),
+        // Fully self-controlled directional push (see _DirectionalSwitcher):
+        //   moving to a HIGHER tab → new enters from RIGHT, old exits LEFT
+        //   moving to a LOWER  tab → new enters from LEFT,  old exits RIGHT
+        child: _DirectionalSwitcher(
+          index: routeIndex,
+          direction: _dir,
+          child: RepaintBoundary(child: widget.child),
         ),
       ),
 
@@ -111,7 +87,8 @@ class _MainShellState extends State<MainShell> {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(34),
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+              filter: ImageFilter.blur(
+                  sigmaX: AppColors.glassBlur, sigmaY: AppColors.glassBlur),
               child: Container(
                 height: 62,
                 decoration: BoxDecoration(
@@ -216,4 +193,72 @@ class _MainShellState extends State<MainShell> {
 class _NavIcon {
   final IconData active, idle;
   const _NavIcon(this.active, this.idle);
+}
+
+/// Deterministic directional page switch driven by a single AnimationController
+/// — no reliance on framework switcher heuristics, so the direction is always
+/// correct: the incoming page slides in from `direction` and the previous page
+/// slides out the opposite way, both fading. When `index` changes we capture
+/// the old child, set the direction, and run the controller 0→1.
+class _DirectionalSwitcher extends StatefulWidget {
+  final int index;        // current tab index
+  final int direction;    // +1 = moving right (to higher tab), -1 = left
+  final Widget child;
+  const _DirectionalSwitcher({
+    required this.index,
+    required this.direction,
+    required this.child,
+  });
+  @override
+  State<_DirectionalSwitcher> createState() => _DirectionalSwitcherState();
+}
+
+class _DirectionalSwitcherState extends State<_DirectionalSwitcher>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 300), value: 1);
+  late Widget _current = widget.child;
+  Widget? _previous;
+  int _dir = 1;
+
+  @override
+  void didUpdateWidget(covariant _DirectionalSwitcher old) {
+    super.didUpdateWidget(old);
+    if (widget.index != old.index) {
+      // Tab changed → animate the new child in over the old.
+      _previous = _current;
+      _current = widget.child;
+      _dir = widget.direction;
+      _c.forward(from: 0);
+    } else if (widget.child != _current) {
+      // Same tab, content rebuilt (e.g. data refresh) → swap without animating.
+      _current = widget.child;
+    }
+  }
+
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = Curves.easeOutCubic.transform(_c.value);
+        final dx = _dir.toDouble();
+        final incoming = FractionalTranslation(
+          translation: Offset(dx * (1 - t), 0),
+          child: Opacity(opacity: t, child: _current),
+        );
+        if (_previous == null || _c.isCompleted) return incoming;
+        return Stack(children: [
+          FractionalTranslation(
+            translation: Offset(-dx * t, 0),
+            child: Opacity(opacity: 1 - t, child: _previous!),
+          ),
+          incoming,
+        ]);
+      },
+    );
+  }
 }
