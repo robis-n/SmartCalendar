@@ -28,47 +28,42 @@ class AppColors {
   static const _inkLight  = Color(0xFF0B0B0D); // near-black ink (used on light)
   static const _paperLight = Color(0xFFF6F5F1); // warm near-white paper
 
-  // ── Optional accent hue — GLOBAL palette seed ────────────────────
+  // ── Theme palette — a bold DUOTONE, not a tint ───────────────────
   // null  = pure ink/paper monochrome (the default identity).
-  // When set, the WHOLE palette is re-derived as a tinted-neutral triad
-  // (Surface · Ink · Accent): the background, cards and ink all pick up a
-  // restrained amount of the chosen hue, the way Apple's tinted grays and
-  // GitHub's "dimmed" themes do — never a flat wash of pure colour.
-  // Synced in app.dart's builder each frame.
-  static Color? _accentHue;
-  static set accentHue(Color? c) => _accentHue = c;
-  static double get _hue => HSLColor.fromColor(_accentHue!).hue;
+  // When a palette is chosen the whole app becomes a real two-colour world:
+  // a richly-coloured surface family (clearly blue / green / plum …) PLUS a
+  // complementary accent (gold / coral / lime …) for the FAB, selection, dots
+  // and nav pill. Solid, high-contrast — see [AccentPalette] for the curated
+  // pairs. Synced in app.dart's builder each frame.
+  static AccentPalette? palette;
 
-  // HSL helper: opaque colour from the accent hue at a given saturation /
-  // lightness. Keeps the tints consistent and tunable from one place.
-  static Color _tint(double sat, double light) =>
-      HSLColor.fromAHSL(1, _hue, sat, light).toColor();
-
-  /// Paper — the background. Tinted-neutral when an accent is active.
+  /// Background — the dominant colour of the duotone.
   static Color get bg {
-    if (_accentHue == null) return _dark ? _paperDark : _paperLight;
-    return _dark ? _tint(0.22, 0.069) : _tint(0.46, 0.965);
+    final p = palette;
+    if (p == null) return _dark ? _paperDark : _paperLight;
+    return _dark ? p.darkBg : p.lightBg;
   }
 
-  /// Ink — the foreground / text. Tinted-neutral when an accent is active.
+  /// Ink — the foreground / text (high-contrast against [bg]).
   static Color get label {
-    if (_accentHue == null) return _dark ? _inkDark : _inkLight;
-    return _dark ? _tint(0.14, 0.945) : _tint(0.55, 0.095);
+    final p = palette;
+    if (p == null) return _dark ? _inkDark : _inkLight;
+    return _dark ? p.darkInk : p.lightInk;
   }
 
-  // ── Elevated surfaces (subtle steps on paper) ────────────────────
+  // ── Elevated surfaces (steps above the background) ───────────────
   static Color get card {
-    if (_accentHue == null) {
-      return _dark ? const Color(0xFF161618) : Colors.white;
-    }
-    return _dark ? _tint(0.18, 0.108) : _tint(0.60, 0.995);
+    final p = palette;
+    if (p == null) return _dark ? const Color(0xFF161618) : Colors.white;
+    return _dark ? p.darkSurface : p.lightSurface;
   }
 
   static Color get bg2 {
-    if (_accentHue == null) {
+    final p = palette;
+    if (p == null) {
       return _dark ? const Color(0xFF202023) : const Color(0xFFECEBE6);
     }
-    return _dark ? _tint(0.18, 0.16) : _tint(0.42, 0.912);
+    return _dark ? p.darkSurface2 : p.lightSurface2;
   }
 
   // ── Ink at reduced strength (text hierarchy / hairlines) ─────────
@@ -78,25 +73,26 @@ class AppColors {
   static Color get accentLight => label.withValues(alpha: 0.07); // faint ink tint bg
 
   // ── Glass (iOS "material" translucent chrome) ────────────────────
-  // Derived from the (possibly tinted) card surface so the chrome carries the
-  // same hue as the rest of the app. Pair with BackdropFilter(sigma 22).
+  // Derived from the surface so the chrome carries the same hue as the app.
   static Color get glass => card.withValues(alpha: _dark ? 0.72 : 0.78);
-  // Subtle bright rim along the edge, like light catching glass.
   static Color get glassBorder =>
       _dark ? Colors.white.withValues(alpha: 0.14)
             : Colors.white.withValues(alpha: 0.55);
-  // Recommended blur radius for glass surfaces.
   static const double glassBlur = 22;
 
-  // ── Accent (the vivid third colour) ──────────────────────────────
-  // The saturated seed itself — selection fills, the + FAB, reminder dots,
-  // the nav pill. Falls back to ink in mono mode, so any accent/onAccent
-  // pairing is a no-op in the default theme.
-  static Color get accent => _accentHue ?? label;
+  // ── Accent (the complementary second colour) ─────────────────────
+  // The vivid complement — FAB, selection fills, reminder dots, nav pill.
+  // Falls back to ink in mono mode, so any accent/onAccent pairing is a
+  // no-op in the default theme.
+  static Color get accent {
+    final p = palette;
+    if (p == null) return label;
+    return _dark ? p.darkAccent : p.lightAccent;
+  }
   // Legible text/icon colour to sit ON an accent fill.
   static Color get onAccent {
-    if (_accentHue == null) return bg;
-    return ThemeData.estimateBrightnessForColor(_accentHue!) == Brightness.dark
+    if (palette == null) return bg;
+    return ThemeData.estimateBrightnessForColor(accent) == Brightness.dark
         ? Colors.white
         : Colors.black;
   }
@@ -113,6 +109,95 @@ class AppColors {
   static Color priorityColor(String? p) => label;
   static Color priorityBg(String? p) => label.withValues(alpha: 0.07);
 }
+
+/// ─────────────────────────────────────────────────────────────────────────
+///  DUOTONE PALETTES — curated, solid complementary pairs.
+///
+///  Each palette is a full surface family (bg / surface / surface2 / ink) in a
+///  single dominant hue, plus a COMPLEMENTARY accent — the colour-theory
+///  opposite, so the two read as a real pair (blue↔gold, green↔coral,
+///  plum↔lime, crimson↔teal, sunset-orange↔sky-blue). Dark mode uses a deep,
+///  saturated surface with near-white ink; light mode uses a clearly-tinted
+///  (not whitish) surface with near-black ink. Hand-tuned for AA contrast.
+/// ─────────────────────────────────────────────────────────────────────────
+class AccentPalette {
+  final String name;
+  // Dark mode
+  final Color darkBg, darkSurface, darkSurface2, darkInk, darkAccent;
+  // Light mode
+  final Color lightBg, lightSurface, lightSurface2, lightInk, lightAccent;
+  const AccentPalette({
+    required this.name,
+    required this.darkBg,
+    required this.darkSurface,
+    required this.darkSurface2,
+    required this.darkInk,
+    required this.darkAccent,
+    required this.lightBg,
+    required this.lightSurface,
+    required this.lightSurface2,
+    required this.lightInk,
+    required this.lightAccent,
+  });
+
+  /// Swatch shown in the picker (the dominant colour) + its accent dot.
+  Color get swatch => darkBg == const Color(0xFF000000) ? darkSurface : darkBg;
+}
+
+/// The selectable palettes. `null` (Ink) is represented separately in the
+/// provider as the monochrome default — these are the colourful options.
+const List<AccentPalette> kAccentPalettes = [
+  // Ocean × Gold — deep navy with warm gold.
+  AccentPalette(
+    name: 'Ocean',
+    darkBg: Color(0xFF0C1A2B), darkSurface: Color(0xFF132840),
+    darkSurface2: Color(0xFF1C3756), darkInk: Color(0xFFEAF2FF),
+    darkAccent: Color(0xFFFFC24B),
+    lightBg: Color(0xFFDDEAFB), lightSurface: Color(0xFFFFFFFF),
+    lightSurface2: Color(0xFFCBDDF4), lightInk: Color(0xFF0C1A2B),
+    lightAccent: Color(0xFFD8860B),
+  ),
+  // Forest × Coral — deep green with warm coral.
+  AccentPalette(
+    name: 'Forest',
+    darkBg: Color(0xFF0D1F16), darkSurface: Color(0xFF143024),
+    darkSurface2: Color(0xFF1E4533), darkInk: Color(0xFFE9F6EE),
+    darkAccent: Color(0xFFFF7A59),
+    lightBg: Color(0xFFDDEFE3), lightSurface: Color(0xFFFFFFFF),
+    lightSurface2: Color(0xFFC8E6D2), lightInk: Color(0xFF0D1F16),
+    lightAccent: Color(0xFFE2552B),
+  ),
+  // Plum × Lime — deep purple with electric lime.
+  AccentPalette(
+    name: 'Plum',
+    darkBg: Color(0xFF1A1026), darkSurface: Color(0xFF271637),
+    darkSurface2: Color(0xFF38214E), darkInk: Color(0xFFF3EAFB),
+    darkAccent: Color(0xFFB6E021),
+    lightBg: Color(0xFFEDE4F7), lightSurface: Color(0xFFFFFFFF),
+    lightSurface2: Color(0xFFDDCEEF), lightInk: Color(0xFF1A1026),
+    lightAccent: Color(0xFF5E7C00),
+  ),
+  // Crimson × Teal — deep maroon with bright teal.
+  AccentPalette(
+    name: 'Crimson',
+    darkBg: Color(0xFF230F13), darkSurface: Color(0xFF34161C),
+    darkSurface2: Color(0xFF4A1F27), darkInk: Color(0xFFFCEAED),
+    darkAccent: Color(0xFF2BD4C0),
+    lightBg: Color(0xFFFBE2E6), lightSurface: Color(0xFFFFFFFF),
+    lightSurface2: Color(0xFFF1CDD3), lightInk: Color(0xFF230F13),
+    lightAccent: Color(0xFF0E8C7D),
+  ),
+  // Sunset × Sky — warm umber with cool sky-blue.
+  AccentPalette(
+    name: 'Sunset',
+    darkBg: Color(0xFF241606), darkSurface: Color(0xFF34230E),
+    darkSurface2: Color(0xFF4A3115), darkInk: Color(0xFFFFF2E4),
+    darkAccent: Color(0xFF4DA3FF),
+    lightBg: Color(0xFFFBEEDD), lightSurface: Color(0xFFFFFFFF),
+    lightSurface2: Color(0xFFF1DEC4), lightInk: Color(0xFF241606),
+    lightAccent: Color(0xFF0A6BD6),
+  ),
+];
 
 /// ─────────────────────────────────────────────────────────────────────────
 ///  MOTION — one place for the curves & durations that give the app its

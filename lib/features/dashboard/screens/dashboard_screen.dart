@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/theme_provider.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
@@ -11,13 +13,13 @@ import '../../tasks/screens/add_task_screen.dart';
 import '../../tasks/screens/task_detail_screen.dart';
 import '../../verification/screens/verification_screen.dart';
 
-class DashboardScreen extends StatefulWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen>
+class _DashboardScreenState extends ConsumerState<DashboardScreen>
     with WidgetsBindingObserver {
   List<Map<String, dynamic>> _tasks  = [];
   List<Map<String, dynamic>> _shared = [];
@@ -167,6 +169,16 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (r != null && mounted) _load();
   }
 
+  // A task a friend shared with me — opens the same detail screen, which now
+  // resolves shared tasks (read-only) instead of showing "Not found".
+  Future<void> _openShared(Map<String, dynamic> task) async {
+    final id = task['id'] as String?;
+    if (id == null) return;
+    await Navigator.of(context, rootNavigator: true)
+        .push(MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: id)));
+    if (mounted) _load();
+  }
+
   // Unfinished / overdue tasks — the left-hand mirror of the + button.
   Future<void> _openUndone() async {
     await showModalBottomSheet<void>(
@@ -249,6 +261,14 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _openVerification(Map<String, dynamic> task) async {
+    // Tasks that don't require photo proof complete with a single tick — free
+    // for everyone, no camera, no Pro gate (e.g. a shared family dinner).
+    if (task['verification_required'] == false) {
+      await SupabaseService.updateTaskStatus(task['id'], 'verified');
+      await NotificationService().cancelTaskNotifications(task['id']);
+      if (mounted) _load();
+      return;
+    }
     final canVerify = [AppConstants.tierPro, AppConstants.tierPremium, AppConstants.tierAdmin]
         .contains(_tier);
     if (!canVerify) {
@@ -290,6 +310,12 @@ class _DashboardScreenState extends State<DashboardScreen>
     final done  = _tasks.where((t) => t['status'] == 'verified').length;
     final total = _tasks.length;
     final left  = total - done;          // everything not yet completed
+    // Feature visibility — the user can hide optional Home surfaces (Settings →
+    // Features). Watched so toggling reflects immediately on this live branch.
+    final flags = ref.watch(featureFlagsProvider);
+    final showWeekStrip  = flags[Feature.weekStrip]  ?? true;
+    final showAnytime    = flags[Feature.anytime]    ?? true;
+    final showWeekAgenda = flags[Feature.weekAgenda] ?? true;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -370,13 +396,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
 
                   // ── This week strip (above the tasks) ───────────
-                  SliverToBoxAdapter(
-                    child: _WeekStrip(
-                      monday: _mondayOfThisWeek,
-                      initialOffsets: _weekTaskDays,
-                      onTapDay: _openDayZoom,
+                  if (showWeekStrip)
+                    SliverToBoxAdapter(
+                      child: _WeekStrip(
+                        monday: _mondayOfThisWeek,
+                        initialOffsets: _weekTaskDays,
+                        onTapDay: _openDayZoom,
+                      ),
                     ),
-                  ),
 
                   // ── Task list / shared / empty ──────────────────
                   if (_tasks.isEmpty && _shared.isEmpty && _undone.isEmpty)
@@ -430,7 +457,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                         padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
                         sliver: SliverList(
                           delegate: SliverChildBuilderDelegate(
-                            (ctx, i) => _SharedRow(task: _shared[i]),
+                            (ctx, i) => _SharedRow(
+                              task: _shared[i],
+                              onTap: () => _openShared(_shared[i]),
+                            ),
                             childCount: _shared.length,
                           ),
                         ),
@@ -438,10 +468,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ],
 
                     // ── Timeless bucket-list reminders ───────────
-                    ..._buildGlobal(),
+                    if (showAnytime) ..._buildGlobal(),
 
                     // ── Rest of this week ─────────────────────────
-                    ..._buildWeekAhead(),
+                    if (showWeekAgenda) ..._buildWeekAhead(),
 
                     // Extra room so content scrolls above the floating FABs
                     // even at the largest text scale (FABs sit ~168px from bottom).
@@ -529,7 +559,8 @@ class _DashboardScreenState extends State<DashboardScreen>
 
 class _SharedRow extends StatelessWidget {
   final Map<String, dynamic> task;
-  const _SharedRow({required this.task});
+  final VoidCallback onTap;
+  const _SharedRow({required this.task, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -537,27 +568,32 @@ class _SharedRow extends StatelessWidget {
     final time = task['scheduled_time'] != null
         ? _fmt(tsFromDb(task['scheduled_time']))
         : 'Anytime';
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Row(children: [
-          Icon(Icons.people_outline_rounded, size: 20, color: AppColors.label3),
-          const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(task['title'] ?? '',
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w600,
-                color: AppColors.label, letterSpacing: -0.3,
-              )),
-            const SizedBox(height: 4),
-            Text('from ${by.split('@').first} · $time',
-              style: TextStyle(fontSize: 14, color: AppColors.label3)),
-          ])),
-        ]),
-      ),
-      Container(height: 0.5, color: AppColors.separator),
-    ]);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(children: [
+            Icon(Icons.people_outline_rounded, size: 20, color: AppColors.label3),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(task['title'] ?? '',
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w600,
+                  color: AppColors.label, letterSpacing: -0.3,
+                )),
+              const SizedBox(height: 4),
+              Text('from ${by.split('@').first} · $time',
+                style: TextStyle(fontSize: 14, color: AppColors.label3)),
+            ])),
+            Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
+          ]),
+        ),
+        Container(height: 0.5, color: AppColors.separator),
+      ]),
+    );
   }
 
   String _fmt(DateTime d) {

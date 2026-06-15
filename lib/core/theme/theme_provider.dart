@@ -65,43 +65,94 @@ class TextScaleNotifier extends StateNotifier<double> {
   }
 }
 
-// ── Accent color ──────────────────────────────────────────────────────────────
-// 6 preset hues + null (ink/monochrome default). Applied to reminder dots,
-// selected-day circles, and the primary + FAB. Text stays monochrome always.
-const List<Color?> accentPresets = [
-  null,                    // Ink — monochrome
-  Color(0xFF007AFF),       // Blue
-  Color(0xFF34C759),       // Green
-  Color(0xFFFF9500),       // Orange
-  Color(0xFFAF52DE),       // Purple
-  Color(0xFFFF3B30),       // Red
-];
+// ── Theme palette (duotone) ─────────────────────────────────────────────────
+// Index 0 = Ink (monochrome default). 1..N map to kAccentPalettes[index-1] —
+// bold complementary duotones that recolour the WHOLE app. State is the index
+// so the picker can show a tidy row; AppColors.palette is the resolved palette.
+/// Resolve a stored accent index to its palette (null = Ink/monochrome).
+/// Public so app.dart can keep AppColors in sync each frame.
+AccentPalette? accentPaletteForIndex(int index) =>
+    (index >= 1 && index <= kAccentPalettes.length)
+        ? kAccentPalettes[index - 1]
+        : null;
 
 final accentColorProvider =
-    StateNotifierProvider<AccentColorNotifier, Color?>(
+    StateNotifierProvider<AccentColorNotifier, int>(
         (ref) => AccentColorNotifier());
 
-class AccentColorNotifier extends StateNotifier<Color?> {
+class AccentColorNotifier extends StateNotifier<int> {
   AccentColorNotifier() : super(_load()) {
-    AppColors.accentHue = state;
+    AppColors.palette = accentPaletteForIndex(state);
   }
 
-  static Color? _load() {
+  static int _load() {
     try {
       final i = Hive.box(kSettingsBox).get(_kAccentKey, defaultValue: 0) as int;
-      return i >= 0 && i < accentPresets.length ? accentPresets[i] : null;
+      return (i >= 0 && i <= kAccentPalettes.length) ? i : 0;
     } catch (_) {
-      return null;
+      return 0;
     }
   }
 
   void pick(int index) {
-    if (index < 0 || index >= accentPresets.length) return;
-    final c = accentPresets[index];
-    state = c;
-    AppColors.accentHue = c;
+    if (index < 0 || index > kAccentPalettes.length) return;
+    state = index;
+    AppColors.palette = accentPaletteForIndex(index);
     try {
       Hive.box(kSettingsBox).put(_kAccentKey, index);
+    } catch (_) {}
+  }
+}
+
+// ── Feature visibility flags ─────────────────────────────────────────────────
+// Lets the user hide optional surfaces so the app stays lean. Persisted in Hive
+// as a map of key→bool; defaults all on. Watched by the dashboard + settings so
+// toggling reflects immediately even though tab branches stay alive.
+const String _kFeaturesKey = 'feature_flags';
+
+class Feature {
+  static const weekStrip  = 'home_week_strip';
+  static const anytime    = 'home_anytime';
+  static const weekAgenda = 'home_week_agenda';
+  static const social     = 'social';   // friends, challenges, statistics
+
+  // (key, title, subtitle) for the settings checklist.
+  static const List<(String, String, String)> all = [
+    (weekStrip,  'Week strip',        'The swipeable week at the top of Home'),
+    (anytime,    'Anytime list',      'Timeless reminders with no deadline'),
+    (weekAgenda, "This week agenda",  "Upcoming days listed on Home"),
+    (social,     'Friends & social',  'Friends, challenges and statistics'),
+  ];
+}
+
+final featureFlagsProvider =
+    StateNotifierProvider<FeatureFlagsNotifier, Map<String, bool>>(
+        (ref) => FeatureFlagsNotifier());
+
+class FeatureFlagsNotifier extends StateNotifier<Map<String, bool>> {
+  FeatureFlagsNotifier() : super(_load());
+
+  static Map<String, bool> _load() {
+    final out = {for (final f in Feature.all) f.$1: true};
+    try {
+      final raw = Hive.box(kSettingsBox).get(_kFeaturesKey);
+      if (raw is Map) {
+        for (final e in raw.entries) {
+          if (out.containsKey(e.key) && e.value is bool) {
+            out[e.key as String] = e.value as bool;
+          }
+        }
+      }
+    } catch (_) {}
+    return out;
+  }
+
+  bool isOn(String key) => state[key] ?? true;
+
+  void toggle(String key, bool value) {
+    state = {...state, key: value};
+    try {
+      Hive.box(kSettingsBox).put(_kFeaturesKey, state);
     } catch (_) {}
   }
 }

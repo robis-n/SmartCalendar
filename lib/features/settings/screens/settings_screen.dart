@@ -62,6 +62,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
+    final flags = ref.watch(featureFlagsProvider);
     final isAdmin = _tier == AppConstants.tierAdmin;
     final initial = _email.isNotEmpty ? _email[0].toUpperCase() : '?';
 
@@ -133,8 +134,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 12),
                   _AccentColorPicker(
-                    selected: ref.watch(accentColorProvider),
+                    selectedIndex: ref.watch(accentColorProvider),
                     onPick: (i) => ref.read(accentColorProvider.notifier).pick(i),
+                  ),
+                  const SizedBox(height: 22),
+
+                  // ── Features — show only what you use ─────────────
+                  _sectionLabel('FEATURES'),
+                  _section([
+                    for (var i = 0; i < Feature.all.length; i++) ...[
+                      if (i > 0) _divider(),
+                      _featureRow(Feature.all[i], flags),
+                    ],
+                  ]),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 8, 6, 0),
+                    child: Text(
+                      'Turn off what you don\'t use to keep the app lean. You can switch anything back on here anytime.',
+                      style: TextStyle(fontSize: 12, color: AppColors.label3, height: 1.4),
+                    ),
                   ),
                   const SizedBox(height: 22),
 
@@ -178,22 +196,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     const SizedBox(height: 22),
                   ],
 
-                  // ── Social & stats (moved out of the tab bar) ─────
-                  _sectionLabel('SOCIAL & STATS'),
-                  _section([
-                    _row(
-                      icon: Icons.people_outline_rounded,
-                      title: 'Friends',
-                      onTap: () => _push(const FriendsScreen()),
-                    ),
-                    _divider(),
-                    _row(
-                      icon: Icons.bar_chart_rounded,
-                      title: 'Statistics',
-                      onTap: () => _push(const AnalyticsScreen()),
-                    ),
-                  ]),
-                  const SizedBox(height: 22),
+                  // ── Social & stats (hidden when the feature is off) ─
+                  if (flags[Feature.social] ?? true) ...[
+                    _sectionLabel('SOCIAL & STATS'),
+                    _section([
+                      _row(
+                        icon: Icons.people_outline_rounded,
+                        title: 'Friends',
+                        onTap: () => _push(const FriendsScreen()),
+                      ),
+                      _divider(),
+                      _row(
+                        icon: Icons.bar_chart_rounded,
+                        title: 'Statistics',
+                        onTap: () => _push(const AnalyticsScreen()),
+                      ),
+                    ]),
+                    const SizedBox(height: 22),
+                  ],
 
                   // ── Account ───────────────────────────────────────
                   _sectionLabel('ACCOUNT'),
@@ -497,6 +517,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       Switch.adaptive(value: value, onChanged: onChanged),
     ]),
   );
+
+  // A feature-visibility toggle (title + subtitle + switch).
+  Widget _featureRow((String, String, String) f, Map<String, bool> flags) {
+    final on = flags[f.$1] ?? true;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(f.$2,
+                style: TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w500, color: AppColors.label)),
+            const SizedBox(height: 2),
+            Text(f.$3,
+                style: TextStyle(fontSize: 12, color: AppColors.label3)),
+          ]),
+        ),
+        const SizedBox(width: 12),
+        Switch.adaptive(
+          value: on,
+          onChanged: (v) =>
+              ref.read(featureFlagsProvider.notifier).toggle(f.$1, v),
+        ),
+      ]),
+    );
+  }
 
   // ── Bottom sheets / dialogs ────────────────────────────────────────────────
 
@@ -856,74 +902,108 @@ class _TextSizeSelector extends StatelessWidget {
   }
 }
 
-// ── Accent color picker ───────────────────────────────────────────────────────
+// ── Theme (duotone) picker ────────────────────────────────────────────────────
+// A horizontally-scrolling row of duotone swatches: each shows the dominant
+// surface colour with the complementary accent as an inset dot, plus a name.
+// Index 0 = Ink (monochrome). Selecting one recolours the whole app.
 
 class _AccentColorPicker extends StatelessWidget {
-  final Color? selected;          // null = ink (monochrome)
-  final ValueChanged<int> onPick; // index into accentPresets
-  const _AccentColorPicker({required this.selected, required this.onPick});
+  final int selectedIndex;        // 0 = Ink, 1..N = kAccentPalettes[i-1]
+  final ValueChanged<int> onPick;
+  const _AccentColorPicker(
+      {required this.selectedIndex, required this.onPick});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      padding: const EdgeInsets.fromLTRB(18, 16, 12, 16),
       decoration: BoxDecoration(
         color: AppColors.card,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.separator, width: 0.5),
         boxShadow: cardShadow,
       ),
-      child: Row(children: [
-        Icon(Icons.palette_outlined, size: 22, color: AppColors.label),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Text('Accent colour',
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.palette_outlined, size: 22, color: AppColors.label),
+          const SizedBox(width: 16),
+          Text('Theme',
               style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
                   color: AppColors.label)),
-        ),
-        const SizedBox(width: 8),
-        Row(mainAxisSize: MainAxisSize.min, children: [
-          for (var i = 0; i < accentPresets.length; i++)
-            GestureDetector(
-              onTap: () => onPick(i),
-              child: Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: _dot(accentPresets[i], selected, i),
-              ),
-            ),
         ]),
+        const SizedBox(height: 14),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.only(right: 6),
+          child: Row(children: [
+            _swatch(index: 0, name: 'Ink'),
+            for (var i = 0; i < kAccentPalettes.length; i++)
+              _swatch(index: i + 1, name: kAccentPalettes[i].name),
+          ]),
+        ),
       ]),
     );
   }
 
-  Widget _dot(Color? preset, Color? sel, int idx) {
-    // idx 0 = ink/monochrome (show as label color)
-    final dotColor = preset ?? AppColors.label;
-    final isSelected = preset == null
-        ? sel == null
-        : (sel != null && sel == preset);
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      width: isSelected ? 26 : 20,
-      height: isSelected ? 26 : 20,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: dotColor,
-        border: isSelected
-            ? Border.all(
-                color: AppColors.separator.withValues(alpha: 0.6), width: 3)
-            : null,
-        boxShadow: isSelected
-            ? [BoxShadow(color: dotColor.withValues(alpha: 0.45), blurRadius: 6)]
-            : null,
+  Widget _swatch({required int index, required String name}) {
+    final selected = index == selectedIndex;
+    // Resolve the two colours this swatch previews (mode-aware).
+    final Color dominant, accent;
+    if (index == 0) {
+      dominant = AppColors.isDark ? const Color(0xFF0B0B0D) : const Color(0xFFF6F5F1);
+      accent   = AppColors.isDark ? const Color(0xFFF4F3EF) : const Color(0xFF0B0B0D);
+    } else {
+      final p = kAccentPalettes[index - 1];
+      dominant = AppColors.isDark ? p.darkBg : p.lightBg;
+      accent   = AppColors.isDark ? p.darkAccent : p.lightAccent;
+    }
+    return GestureDetector(
+      onTap: () => onPick(index),
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 14),
+        child: Column(children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            width: 46, height: 46,
+            decoration: BoxDecoration(
+              color: dominant,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected ? accent : AppColors.separator,
+                width: selected ? 2.5 : 1,
+              ),
+              boxShadow: selected
+                  ? [BoxShadow(color: accent.withValues(alpha: 0.4), blurRadius: 8)]
+                  : null,
+            ),
+            alignment: Alignment.center,
+            child: selected
+                ? Icon(Icons.check_rounded, size: 18, color: accent)
+                // Accent dot, inset — shows the duotone pairing at rest.
+                : Align(
+                    alignment: Alignment.bottomRight,
+                    child: Padding(
+                      padding: const EdgeInsets.all(7),
+                      child: Container(
+                        width: 12, height: 12,
+                        decoration:
+                            BoxDecoration(color: accent, shape: BoxShape.circle),
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 6),
+          Text(name,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? AppColors.label : AppColors.label3)),
+        ]),
       ),
-      // Show a small tick for the selected dot
-      child: isSelected
-          ? Icon(Icons.check_rounded, size: 12,
-              color: idx == 0 ? AppColors.bg : Colors.white)
-          : null,
     );
   }
 }

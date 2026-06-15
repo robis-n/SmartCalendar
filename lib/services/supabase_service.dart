@@ -147,6 +147,39 @@ class SupabaseService {
     return res;
   }
 
+  /// Fetch a task by id WITHOUT the owner filter — RLS still guards it, so this
+  /// resolves to a row only if I own it OR I'm a collaborator (invited). This
+  /// is what makes a shared task openable instead of showing "Not found".
+  /// Returns the row plus `_is_owner` and, when shared, `_shared_by` email.
+  static Future<Map<String, dynamic>?> getAnyTaskById(String taskId) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return null;
+    final res = await client
+        .from('tasks')
+        .select()
+        .eq('id', taskId)
+        .maybeSingle();
+    if (res == null) return null;
+    final isOwner = res['user_id'] == me;
+    res['_is_owner'] = isOwner;
+    if (!isOwner) {
+      // Resolve who shared it (best-effort; never blocks the open).
+      try {
+        final owner = await client
+            .from('users')
+            .select('email, username')
+            .eq('id', res['user_id'])
+            .maybeSingle();
+        res['_shared_by'] = (owner?['username'] as String?)?.isNotEmpty == true
+            ? '@${owner!['username']}'
+            : (owner?['email'] as String? ?? 'a friend');
+      } catch (_) {
+        res['_shared_by'] = 'a friend';
+      }
+    }
+    return res;
+  }
+
   static Future<Map<String, dynamic>> createTask(Map<String, dynamic> task) async {
     final res = await client.from('tasks').insert(task).select().single();
     return res;
@@ -494,7 +527,11 @@ class SupabaseService {
       if (f['status'] != 'accepted') continue;
       final other = (f['requester_id'] == me ? f['addressee'] : f['requester']) as Map?;
       if (other != null && other['id'] != null) {
-        out.add({'id': other['id'], 'email': other['email'] ?? '?'});
+        out.add({
+          'id': other['id'],
+          'email': other['email'] ?? '?',
+          'username': other['username'] ?? '',
+        });
       }
     }
     return out;
@@ -551,5 +588,44 @@ class SupabaseService {
       t['_shared_by'] = emailOf[ownerOf[t['id']]] ?? 'a friend';
     }
     return tasks;
+  }
+
+  // ── Friend groups ──────────────────────────────────────
+  // Named groups (e.g. "Family") so a whole set of friends can be invited to a
+  // task at once. Owner-only (RLS); member_ids are friend user ids.
+
+  static Future<List<Map<String, dynamic>>> getFriendGroups() async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return [];
+    final res = await client
+        .from('friend_groups')
+        .select()
+        .eq('owner_id', me)
+        .order('created_at');
+    return List<Map<String, dynamic>>.from(res);
+  }
+
+  static Future<void> createFriendGroup(
+      String name, List<String> memberIds) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return;
+    await client.from('friend_groups').insert({
+      'owner_id': me,
+      'name': name,
+      'member_ids': memberIds,
+    });
+  }
+
+  static Future<void> updateFriendGroup(
+      String groupId, {String? name, List<String>? memberIds}) async {
+    final data = <String, dynamic>{};
+    if (name != null) data['name'] = name;
+    if (memberIds != null) data['member_ids'] = memberIds;
+    if (data.isEmpty) return;
+    await client.from('friend_groups').update(data).eq('id', groupId);
+  }
+
+  static Future<void> deleteFriendGroup(String groupId) async {
+    await client.from('friend_groups').delete().eq('id', groupId);
   }
 }

@@ -14,6 +14,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   List<Map<String, dynamic>> _challenges  = [];
   List<Map<String, dynamic>> _suggestions = [];
   List<Map<String, dynamic>> _nudges      = [];
+  List<Map<String, dynamic>> _groups      = [];
   bool _loading = true;
 
   String get _myId => Supabase.instance.client.auth.currentUser?.id ?? '';
@@ -28,6 +29,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
       SupabaseService.getChallenges(),
       SupabaseService.getFriendSuggestions(limit: 6),
       SupabaseService.getNudges(),
+      SupabaseService.getFriendGroups(),
     ]);
     // Mark nudges seen after fetching so the badge on the shell can clear.
     await SupabaseService.markNudgesSeen();
@@ -37,6 +39,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         _challenges  = results[1];
         _suggestions = results[2];
         _nudges      = results[3];
+        _groups      = results[4];
         _loading     = false;
       });
     }
@@ -239,6 +242,34 @@ class _FriendsScreenState extends State<FriendsScreen> {
                             .toList()),
                       const SizedBox(height: 22),
 
+                      // ── Groups (e.g. "Family") — invite many at once ──
+                      Row(children: [
+                        Expanded(child: _sectionLabel('Groups')),
+                        if (_accepted.isNotEmpty)
+                          GestureDetector(
+                            onTap: () => _groupEditor(),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.add_rounded, size: 16, color: AppColors.label),
+                              const SizedBox(width: 4),
+                              Text('New group',
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.label)),
+                            ]),
+                          ),
+                      ]),
+                      const SizedBox(height: 10),
+                      if (_accepted.isEmpty)
+                        _emptyCard('Add friends first to build a group')
+                      else if (_groups.isEmpty)
+                        _emptyCard('No groups yet — tap "New group" to make one')
+                      else
+                        _card(children: _groups
+                            .mapIndexed((i, g) => _groupTile(g, i, _groups.length))
+                            .toList()),
+                      const SizedBox(height: 22),
+
                       _sectionLabel('Challenges'),
                       const SizedBox(height: 10),
                       if (_challenges.isEmpty)
@@ -385,6 +416,164 @@ class _FriendsScreenState extends State<FriendsScreen> {
       ),
       if (i < total - 1) _hairline(),
     ]);
+  }
+
+  // ── Group tile + editor ───────────────────────────────
+
+  Widget _groupTile(Map<String, dynamic> g, int i, int total) {
+    final members = List<String>.from((g['member_ids'] as List?) ?? const []);
+    return Column(children: [
+      InkWell(
+        onTap: () => _groupEditor(existing: g),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(children: [
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.bg2,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.separator, width: 0.8),
+              ),
+              child: Icon(Icons.group_rounded, size: 20, color: AppColors.label),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(g['name'] as String? ?? 'Group',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
+                        color: AppColors.label)),
+                const SizedBox(height: 2),
+                Text('${members.length} ${members.length == 1 ? 'member' : 'members'}',
+                    style: TextStyle(fontSize: 13, color: AppColors.label3)),
+              ],
+            )),
+            Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
+          ]),
+        ),
+      ),
+      if (i < total - 1) _hairline(),
+    ]);
+  }
+
+  // Create or edit a named group: a name + a checklist of accepted friends.
+  Future<void> _groupEditor({Map<String, dynamic>? existing}) async {
+    final nameCtrl = TextEditingController(text: existing?['name'] as String? ?? '');
+    final selected = <String>{
+      ...?(existing?['member_ids'] as List?)?.map((e) => e.toString()),
+    };
+    final friends = _accepted.map(_other).where((u) => u['id'] != null).toList();
+    bool saving = false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useRootNavigator: true,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, ss) => DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (ctx, scrollCtrl) => Column(children: [
+            const SizedBox(height: 12),
+            Container(
+                width: 40, height: 5,
+                decoration: BoxDecoration(
+                    color: AppColors.separator,
+                    borderRadius: BorderRadius.circular(3))),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
+              child: Row(children: [
+                Text(existing == null ? 'New group' : 'Edit group',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.label)),
+                const Spacer(),
+                if (existing != null)
+                  TextButton(
+                    onPressed: () async {
+                      await SupabaseService.deleteFriendGroup(existing['id'] as String);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      _load();
+                    },
+                    child: Text('Delete',
+                        style: TextStyle(color: AppColors.label3, fontSize: 15)),
+                  ),
+                TextButton(
+                  onPressed: saving ? null : () async {
+                    final name = nameCtrl.text.trim();
+                    if (name.isEmpty) { _snack('Name your group'); return; }
+                    ss(() => saving = true);
+                    if (existing == null) {
+                      await SupabaseService.createFriendGroup(
+                          name, selected.toList());
+                    } else {
+                      await SupabaseService.updateFriendGroup(
+                          existing['id'] as String,
+                          name: name, memberIds: selected.toList());
+                    }
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    _load();
+                  },
+                  child: Text('Save',
+                      style: TextStyle(
+                          color: AppColors.label,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700)),
+                ),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: TextField(
+                controller: nameCtrl,
+                autofocus: existing == null,
+                textCapitalization: TextCapitalization.words,
+                style: TextStyle(color: AppColors.label),
+                decoration: const InputDecoration(
+                    labelText: 'Group name', hintText: 'e.g. Family'),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
+                children: friends.map((u) {
+                  final id = u['id'] as String;
+                  final on = selected.contains(id);
+                  return ListTile(
+                    onTap: () => ss(() => on ? selected.remove(id) : selected.add(id)),
+                    leading: _avatar(u, size: 38),
+                    title: Text(_handle(u),
+                        style: TextStyle(
+                            color: AppColors.label, fontWeight: FontWeight.w500)),
+                    trailing: Container(
+                      width: 26, height: 26,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: on ? AppColors.label : Colors.transparent,
+                        border: on
+                            ? null
+                            : Border.all(color: AppColors.separator, width: 1.5),
+                      ),
+                      child: on
+                          ? Icon(Icons.check_rounded, size: 16, color: AppColors.bg)
+                          : null,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 
   Widget _challengeTile(Map<String, dynamic> c) {

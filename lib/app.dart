@@ -12,7 +12,7 @@ class AccountabilityApp extends ConsumerWidget {
     final router    = ref.watch(appRouterProvider);
     final themeMode = ref.watch(themeModeProvider);
     final textScale = ref.watch(textScaleProvider);
-    final accent    = ref.watch(accentColorProvider);
+    final accentIdx = ref.watch(accentColorProvider);
 
     return MaterialApp.router(
       title: 'SmartCalendar',
@@ -31,7 +31,7 @@ class AccountabilityApp extends ConsumerWidget {
       // direct AppColors.* getters resolve correctly every frame.
       builder: (context, child) {
         AppColors.dark = Theme.of(context).brightness == Brightness.dark;
-        AppColors.accentHue = accent;
+        AppColors.palette = accentPaletteForIndex(accentIdx);
         // Apply the user's text-size choice globally, ignoring any extreme OS
         // setting so the layout stays in proportion.
         return MediaQuery.withClampedTextScaling(

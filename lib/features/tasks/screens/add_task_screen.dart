@@ -18,14 +18,16 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   final _title = TextEditingController();
   final _desc  = TextEditingController();
   late DateTime _deadline;
-  String _priority   = 'medium';
-  bool   _saving     = false;
-  bool   _noDeadline = false; // true → timeless bucket-list reminder
-  bool   _syncCal    = false;
+  String _priority    = 'medium';
+  bool   _saving      = false;
+  bool   _noDeadline  = false; // true → timeless bucket-list reminder
+  bool   _requireProof = true; // photo proof to complete (off = simple tick)
+  bool   _syncCal     = false;
   String? _syncCalId;
   List<WritableCalendar> _writableCals = [];
 
   List<Map<String, dynamic>> _friends = [];
+  List<Map<String, dynamic>> _groups  = []; // named friend groups (e.g. Family)
   final Set<String> _collab = {};
 
   @override
@@ -41,7 +43,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
 
   Future<void> _loadFriends() async {
     final f = await SupabaseService.getAcceptedFriends();
-    if (mounted) setState(() => _friends = f);
+    final g = await SupabaseService.getFriendGroups();
+    if (mounted) setState(() { _friends = f; _groups = g; });
   }
 
   Future<void> _loadCalendars() async {
@@ -155,6 +158,56 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
               ),
             ]),
           ),
+          // ── Groups — tap to add/remove everyone in the group at once ──
+          if (_groups.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 4, 24, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('GROUPS',
+                    style: TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.w800,
+                        color: AppColors.label3, letterSpacing: 1.5)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Wrap(spacing: 8, runSpacing: 8, children: _groups.map((g) {
+                final members =
+                    List<String>.from((g['member_ids'] as List?) ?? const []);
+                // "On" when every member is already selected.
+                final allIn = members.isNotEmpty &&
+                    members.every((m) => temp.contains(m));
+                return GestureDetector(
+                  onTap: () => ss(() {
+                    if (allIn) {
+                      temp.removeAll(members);
+                    } else {
+                      temp.addAll(members);
+                    }
+                  }),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: allIn ? AppColors.label : AppColors.bg2,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.separator, width: 1),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.group_rounded, size: 15,
+                          color: allIn ? AppColors.bg : AppColors.label2),
+                      const SizedBox(width: 7),
+                      Text('${g['name']} · ${members.length}',
+                          style: TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w600,
+                              color: allIn ? AppColors.bg : AppColors.label)),
+                    ]),
+                  ),
+                );
+              }).toList()),
+            ),
+            const SizedBox(height: 8),
+          ],
           ..._friends.map((f) {
             final id = f['id'] as String;
             final on = temp.contains(id);
@@ -202,6 +255,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         'status':         'pending',
         'ai_generated':   false,
         'priority':       _priority,
+        'verification_required': _requireProof,
       });
       if (_collab.isNotEmpty) {
         await SupabaseService.addCollaborators(created['id'], _collab.toList());
@@ -430,6 +484,52 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
               },
               style: TextStyle(fontSize: 13, color: AppColors.label3, height: 1.4),
             ),
+          ),
+          const SizedBox(height: 24),
+
+          // Verification — does finishing this need a photo, or just a tick?
+          _sectionLabel('VERIFICATION'),
+          const SizedBox(height: 10),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.separator, width: 1),
+            ),
+            child: Column(children: [
+              GestureDetector(
+                onTap: () => setState(() => _requireProof = !_requireProof),
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Row(children: [
+                    Icon(_requireProof
+                            ? Icons.photo_camera_outlined
+                            : Icons.check_circle_outline_rounded,
+                        size: 20, color: AppColors.label2),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Require photo proof',
+                            style: TextStyle(fontSize: 15, color: AppColors.label)),
+                        const SizedBox(height: 2),
+                        Text(
+                          _requireProof
+                              ? 'Snap a photo to mark it done'
+                              : 'Just tick it done — good for group plans',
+                          style: TextStyle(fontSize: 12, color: AppColors.label3),
+                        ),
+                      ]),
+                    ),
+                    CupertinoSwitch(
+                      value: _requireProof,
+                      onChanged: (v) => setState(() => _requireProof = v),
+                      activeTrackColor: AppColors.label,
+                    ),
+                  ]),
+                ),
+              ),
+            ]),
           ),
           const SizedBox(height: 24),
 

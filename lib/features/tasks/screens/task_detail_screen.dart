@@ -4,6 +4,7 @@ import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
+import '../../../shared/widgets/wheel_time_picker.dart';
 import '../../verification/screens/verification_screen.dart';
 
 class TaskDetailScreen extends StatefulWidget {
@@ -21,9 +22,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   @override
   void initState() { super.initState(); _load(); }
 
+  // Owner-aware load: getAnyTaskById resolves the row whether I own it or it
+  // was shared with me (RLS still guards access). `_is_owner` decides whether
+  // the screen is editable or a read-only "shared with you" view.
+  bool get _isOwner => _task?['_is_owner'] != false;
+
   Future<void> _load() async {
     setState(() => _loading = true);
-    final t = await SupabaseService.getTaskById(widget.taskId);
+    final t = await SupabaseService.getAnyTaskById(widget.taskId);
     if (mounted) setState(() { _task = t; _loading = false; });
   }
 
@@ -74,7 +80,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         firstDate: DateTime(2000),
         lastDate: DateTime(DateTime.now().year + 5, 12, 31));
     if (d == null || !mounted) return;
-    final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(cur));
+    final t = await showWheelTimePicker(context,
+        initial: TimeOfDay.fromDateTime(cur));
     if (t == null || !mounted) return;
     final dt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
     await SupabaseService.updateTask(widget.taskId, {'scheduled_time': tsToDb(dt)});
@@ -94,8 +101,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         firstDate: DateTime.now().subtract(const Duration(days: 1)),
         lastDate: DateTime(DateTime.now().year + 5, 12, 31));
     if (d == null || !mounted) return;
-    final t = await showTimePicker(
-        context: context, initialTime: TimeOfDay.fromDateTime(base));
+    final t = await showWheelTimePicker(context,
+        initial: TimeOfDay.fromDateTime(base));
     if (t == null || !mounted) return;
     final dt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
 
@@ -146,6 +153,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   Future<void> _fail() async {
     setState(() => _saving = true);
     await SupabaseService.updateTaskStatus(widget.taskId, 'failed');
+    await NotificationService().cancelTaskNotifications(widget.taskId);
+    if (mounted) Navigator.of(context).pop('updated');
+  }
+
+  // Complete a task that doesn't require photo proof — a plain tick, no camera.
+  Future<void> _markDone() async {
+    setState(() => _saving = true);
+    await SupabaseService.updateTaskStatus(widget.taskId, 'verified');
     await NotificationService().cancelTaskNotifications(widget.taskId);
     if (mounted) Navigator.of(context).pop('updated');
   }
@@ -206,7 +221,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         ),
       ),
       const Spacer(),
-      if (t != null)
+      // Only the owner can delete; a shared task is read-only for collaborators.
+      if (t != null && _isOwner)
         GestureDetector(
           onTap: _delete,
           child: Container(
@@ -225,9 +241,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   Widget _body() {
     final t        = _task!;
+    final owner    = _isOwner;
     final status   = t['status'] as String? ?? 'pending';
     final priority = t['priority'] as String? ?? 'medium';
     final sched    = tsTryFromDb(t['scheduled_time'] as String?);
+    final needsProof = t['verification_required'] != false;
 
     final statusLabel = switch (status) {
       'verified'    => 'Completed',
@@ -244,6 +262,31 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 130),
             children: [
+              // ── Shared-with-you banner (collaborator, read-only) ──
+              if (!owner) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: AppColors.accent.withValues(alpha: 0.4), width: 1),
+                  ),
+                  child: Row(children: [
+                    Icon(Icons.people_outline_rounded,
+                        size: 20, color: AppColors.label2),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Shared by ${t['_shared_by'] ?? 'a friend'} · view only',
+                        style: TextStyle(fontSize: 14, color: AppColors.label2),
+                      ),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+              ],
+
               // ── Title + Status ─────────────────────────
               Container(
                 decoration: BoxDecoration(
@@ -265,14 +308,15 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         style: TextStyle(fontSize: 13, color: AppColors.label, fontWeight: FontWeight.w600)),
                     ),
                     const Spacer(),
-                    GestureDetector(
-                      onTap: _editTitle,
-                      child: Icon(Icons.edit_outlined, size: 20, color: AppColors.label3),
-                    ),
+                    if (owner)
+                      GestureDetector(
+                        onTap: _editTitle,
+                        child: Icon(Icons.edit_outlined, size: 20, color: AppColors.label3),
+                      ),
                   ]),
                   const SizedBox(height: 14),
                   GestureDetector(
-                    onTap: _editTitle,
+                    onTap: owner ? _editTitle : null,
                     child: Text(t['title'] ?? '',
                       style: TextStyle(
                         fontSize: 26, fontWeight: FontWeight.w700,
@@ -288,12 +332,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 icon: Icons.access_time_rounded,
                 label: 'Scheduled',
                 value: sched != null ? '${_fmtDate(sched)}, ${_fmtTime(sched)}' : 'No date set',
-                onTap: _reschedule,
+                onTap: owner ? _reschedule : null,
               ),
               const SizedBox(height: 10),
 
               // ── Notes ─────────────────────────────────
-              _notesCard(t),
+              _notesCard(t, owner),
               const SizedBox(height: 10),
 
               // ── Priority ──────────────────────────────
@@ -313,7 +357,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       for (final (p, label) in [('low', 'Gentle'), ('medium', 'Normal'), ('high', 'Persistent')]) ...[
                         if (p != 'low') const SizedBox(width: 6),
                         GestureDetector(
-                          onTap: () async {
+                          onTap: !owner ? null : () async {
                             await SupabaseService.updateTask(widget.taskId, {'priority': p});
                             // Re-arm with the new nudge intensity right away.
                             if (sched != null && status == 'pending') {
@@ -344,6 +388,32 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 ]),
               ),
 
+              // ── Proof requirement (informational) ─────
+              const SizedBox(height: 10),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.card,
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: cardShadow,
+                ),
+                padding: const EdgeInsets.all(18),
+                child: Row(children: [
+                  Icon(needsProof
+                          ? Icons.photo_camera_outlined
+                          : Icons.check_circle_outline_rounded,
+                      size: 22, color: AppColors.label),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      needsProof
+                          ? 'Photo proof required to complete'
+                          : 'No proof needed — just tick it done',
+                      style: TextStyle(fontSize: 15, color: AppColors.label2),
+                    ),
+                  ),
+                ]),
+              ),
+
               // ── Created at ────────────────────────────
               if (t['created_at'] != null) ...[
                 const SizedBox(height: 12),
@@ -356,17 +426,20 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 ),
               ],
 
-              // ── Actions ───────────────────────────────
-              const SizedBox(height: 28),
-              if (status == 'pending') ...[
+              // ── Actions (owner only — collaborators are read-only) ──
+              if (!owner) ...[
+                const SizedBox(height: 8),
+              ] else if (status == 'pending') ...[
+                const SizedBox(height: 28),
                 FilledButton(
-                  onPressed: _saving ? null : _verify,
-                  child: const Text('Verify completion'),
+                  onPressed: _saving ? null : (needsProof ? _verify : _markDone),
+                  child: Text(needsProof ? 'Verify completion' : 'Mark done'),
                 ),
                 const SizedBox(height: 12),
                 _secondaryButton(label: 'Mark as missed',
                     onTap: _saving ? null : _fail),
               ] else if (status == 'failed') ...[
+                const SizedBox(height: 28),
                 // A missed task can now be reopened (this is what was bothering
                 // the user — failed = total dead end). Reopening also reschedules
                 // notifications via _load → no orphaned state.
@@ -386,6 +459,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   child: const Text('Re-open task'),
                 ),
               ] else if (status == 'verified') ...[
+                const SizedBox(height: 28),
                 // Reuse a completed task: set a new time and arm it again,
                 // so the user never has to recreate the same reminder.
                 FilledButton(
@@ -452,10 +526,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         ),
       );
 
-  Widget _notesCard(Map<String, dynamic> t) {
+  Widget _notesCard(Map<String, dynamic> t, bool owner) {
     final hasNotes = (t['description'] as String?)?.isNotEmpty == true;
+    // For a shared (read-only) task with no notes, don't show an "Add notes…"
+    // affordance the collaborator can't act on.
+    if (!owner && !hasNotes) return const SizedBox.shrink();
     return GestureDetector(
-      onTap: _editDesc,
+      onTap: owner ? _editDesc : null,
       child: Container(
         decoration: BoxDecoration(
           color: AppColors.card,
@@ -477,7 +554,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               ),
             ),
           ])),
-          Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
+          if (owner)
+            Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
         ]),
       ),
     );
