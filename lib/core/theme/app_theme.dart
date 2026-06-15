@@ -22,20 +22,54 @@ class AppColors {
   static bool get isDark => _dark;
   static set dark(bool v) => _dark = v;
 
-  // ── The two anchors ──────────────────────────────────────────────
+  // ── The two anchors (pure-ink default, no accent chosen) ─────────
   static const _inkDark   = Color(0xFFF4F3EF); // near-white ink (used on dark)
   static const _paperDark = Color(0xFF0B0B0D); // near-black paper
   static const _inkLight  = Color(0xFF0B0B0D); // near-black ink (used on light)
   static const _paperLight = Color(0xFFF6F5F1); // warm near-white paper
 
-  /// Paper — the background.
-  static Color get bg    => _dark ? _paperDark : _paperLight;
-  /// Ink — the foreground / text / accent.
-  static Color get label => _dark ? _inkDark : _inkLight;
+  // ── Optional accent hue — GLOBAL palette seed ────────────────────
+  // null  = pure ink/paper monochrome (the default identity).
+  // When set, the WHOLE palette is re-derived as a tinted-neutral triad
+  // (Surface · Ink · Accent): the background, cards and ink all pick up a
+  // restrained amount of the chosen hue, the way Apple's tinted grays and
+  // GitHub's "dimmed" themes do — never a flat wash of pure colour.
+  // Synced in app.dart's builder each frame.
+  static Color? _accentHue;
+  static set accentHue(Color? c) => _accentHue = c;
+  static double get _hue => HSLColor.fromColor(_accentHue!).hue;
 
-  // ── Elevated surfaces (subtle steps of ink on paper) ─────────────
-  static Color get card => _dark ? const Color(0xFF161618) : Colors.white;
-  static Color get bg2  => _dark ? const Color(0xFF202023) : const Color(0xFFECEBE6);
+  // HSL helper: opaque colour from the accent hue at a given saturation /
+  // lightness. Keeps the tints consistent and tunable from one place.
+  static Color _tint(double sat, double light) =>
+      HSLColor.fromAHSL(1, _hue, sat, light).toColor();
+
+  /// Paper — the background. Tinted-neutral when an accent is active.
+  static Color get bg {
+    if (_accentHue == null) return _dark ? _paperDark : _paperLight;
+    return _dark ? _tint(0.22, 0.069) : _tint(0.46, 0.965);
+  }
+
+  /// Ink — the foreground / text. Tinted-neutral when an accent is active.
+  static Color get label {
+    if (_accentHue == null) return _dark ? _inkDark : _inkLight;
+    return _dark ? _tint(0.14, 0.945) : _tint(0.55, 0.095);
+  }
+
+  // ── Elevated surfaces (subtle steps on paper) ────────────────────
+  static Color get card {
+    if (_accentHue == null) {
+      return _dark ? const Color(0xFF161618) : Colors.white;
+    }
+    return _dark ? _tint(0.18, 0.108) : _tint(0.60, 0.995);
+  }
+
+  static Color get bg2 {
+    if (_accentHue == null) {
+      return _dark ? const Color(0xFF202023) : const Color(0xFFECEBE6);
+    }
+    return _dark ? _tint(0.18, 0.16) : _tint(0.42, 0.912);
+  }
 
   // ── Ink at reduced strength (text hierarchy / hairlines) ─────────
   static Color get label2      => label.withValues(alpha: 0.55);
@@ -44,13 +78,9 @@ class AppColors {
   static Color get accentLight => label.withValues(alpha: 0.07); // faint ink tint bg
 
   // ── Glass (iOS "material" translucent chrome) ────────────────────
-  // Tuned to approximate UIBlurEffect's regular material: a fairly opaque
-  // translucent fill (so text stays legible over busy content) plus a faint
-  // 1px top highlight. Pair with BackdropFilter(sigma 22) at the call site.
-  //   light → near-white at 78%   dark → elevated charcoal at ~70%
-  static Color get glass => _dark
-      ? const Color(0xFF1C1C1E).withValues(alpha: 0.72)
-      : Colors.white.withValues(alpha: 0.78);
+  // Derived from the (possibly tinted) card surface so the chrome carries the
+  // same hue as the rest of the app. Pair with BackdropFilter(sigma 22).
+  static Color get glass => card.withValues(alpha: _dark ? 0.72 : 0.78);
   // Subtle bright rim along the edge, like light catching glass.
   static Color get glassBorder =>
       _dark ? Colors.white.withValues(alpha: 0.14)
@@ -58,18 +88,20 @@ class AppColors {
   // Recommended blur radius for glass surfaces.
   static const double glassBlur = 22;
 
-  // ── Optional accent hue ──────────────────────────────────────────
-  // null  = pure ink (monochrome default, follows theme).
-  // When set, used for reminder dots, selected-day circles, the add FAB.
-  // Changed via AccentColorNotifier; synced in app.dart builder each frame.
-  static Color? _accentHue;
-  static set accentHue(Color? c) => _accentHue = c;
+  // ── Accent (the vivid third colour) ──────────────────────────────
+  // The saturated seed itself — selection fills, the + FAB, reminder dots,
+  // the nav pill. Falls back to ink in mono mode, so any accent/onAccent
+  // pairing is a no-op in the default theme.
+  static Color get accent => _accentHue ?? label;
+  // Legible text/icon colour to sit ON an accent fill.
+  static Color get onAccent {
+    if (_accentHue == null) return bg;
+    return ThemeData.estimateBrightnessForColor(_accentHue!) == Brightness.dark
+        ? Colors.white
+        : Colors.black;
+  }
 
-  // ── Semantic names kept for compatibility — all collapse to ink ──
-  // accent: decorative uses (dots, FAB, selection); falls back to ink.
-  static Color get accent       => _accentHue ?? label;
   static Color get accentDark   => label;
-  static Color get onAccent     => bg;
   static Color get success       => label;
   static Color get successBg     => label.withValues(alpha: 0.08);
   static Color get warning       => label;
@@ -80,6 +112,30 @@ class AppColors {
   // ── Priority — monochrome weight, not colour ─────────────────────
   static Color priorityColor(String? p) => label;
   static Color priorityBg(String? p) => label.withValues(alpha: 0.07);
+}
+
+/// ─────────────────────────────────────────────────────────────────────────
+///  MOTION — one place for the curves & durations that give the app its
+///  "human" feel. These mirror the easing the best web/native UIs lean on:
+///   • emphasized:    Material 3 emphasized-decelerate — fast out, soft land.
+///                    Ideal for entering content (sections, sheets, zoom-in).
+///   • emphasizedIn:  emphasized-accelerate — for content leaving.
+///   • standard:      the everyday ease for small state changes.
+///   • spring:        a gentle overshoot for the nav pill / tactile controls,
+///                    the closest Curves equivalent to a UIKit spring.
+///  Durations follow the iOS rhythm: quick taps ~220ms, page-level ~360ms.
+/// ─────────────────────────────────────────────────────────────────────────
+class AppMotion {
+  AppMotion._();
+
+  static const Curve emphasized   = Cubic(0.2, 0.0, 0.0, 1.0);
+  static const Curve emphasizedIn = Cubic(0.3, 0.0, 0.8, 0.15);
+  static const Curve standard     = Cubic(0.4, 0.0, 0.2, 1.0);
+  static const Curve spring       = Cubic(0.34, 1.32, 0.42, 1.0); // soft overshoot
+
+  static const Duration fast = Duration(milliseconds: 220);
+  static const Duration base = Duration(milliseconds: 360);
+  static const Duration slow = Duration(milliseconds: 460);
 }
 
 /// Ink "gradient" — a flat inked fill (kept as a gradient for call-site compat).

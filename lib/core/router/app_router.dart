@@ -23,16 +23,35 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: '/login', builder: (ctx, state) => const LoginScreen()),
-      ShellRoute(
-        builder: (ctx, state, child) => MainShell(child: child),
-        routes: [
-          GoRoute(path: '/dashboard', builder: (ctx, state) => const DashboardScreen()),
-          GoRoute(path: '/calendar', builder: (ctx, state) => const CalendarScreen()),
-          GoRoute(path: '/friends', builder: (ctx, state) => const FriendsScreen()),
-          GoRoute(path: '/analytics', builder: (ctx, state) => const AnalyticsScreen()),
-          GoRoute(path: '/settings', builder: (ctx, state) => const SettingsScreen()),
-          GoRoute(path: '/subscriptions', builder: (ctx, state) => const SubscriptionScreen()),
-          GoRoute(path: '/tasks/:id', builder: (ctx, state) => TaskDetailScreen(taskId: state.pathParameters['id']!)),
+      // StatefulShellRoute keeps each tab's Navigator (and scroll position /
+      // state) alive in parallel branches — the Apple-style behaviour where
+      // switching tabs is instant and lossless. We own the cross-branch
+      // transition via [navigatorContainerBuilder] (see _BranchSwitcher), so
+      // there is NO nested per-route push animation fighting ours — that was
+      // the long-standing cause of the janky/half-missing section animation.
+      StatefulShellRoute(
+        builder: (ctx, state, navigationShell) =>
+            MainShell(navigationShell: navigationShell),
+        navigatorContainerBuilder: (ctx, navigationShell, children) =>
+            BranchSwitcher(
+                currentIndex: navigationShell.currentIndex, children: children),
+        branches: [
+          // 0 — Home
+          StatefulShellBranch(routes: [
+            GoRoute(path: '/dashboard', builder: (ctx, state) => const DashboardScreen()),
+          ]),
+          // 1 — Calendar
+          StatefulShellBranch(routes: [
+            GoRoute(path: '/calendar', builder: (ctx, state) => const CalendarScreen()),
+          ]),
+          // 2 — Profile / Settings (and the screens reachable from it)
+          StatefulShellBranch(routes: [
+            GoRoute(path: '/settings', builder: (ctx, state) => const SettingsScreen()),
+            GoRoute(path: '/friends', builder: (ctx, state) => const FriendsScreen()),
+            GoRoute(path: '/analytics', builder: (ctx, state) => const AnalyticsScreen()),
+            GoRoute(path: '/subscriptions', builder: (ctx, state) => const SubscriptionScreen()),
+            GoRoute(path: '/tasks/:id', builder: (ctx, state) => TaskDetailScreen(taskId: state.pathParameters['id']!)),
+          ]),
         ],
       ),
     ],

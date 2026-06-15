@@ -830,7 +830,7 @@ class _WeekStripState extends State<_WeekStrip> {
                                         ? FontWeight.w800
                                         : FontWeight.w600,
                                     color: selected
-                                        ? AppColors.bg
+                                        ? AppColors.onAccent
                                         : AppColors.label)),
                           ),
                           const SizedBox(height: 5),
@@ -917,7 +917,11 @@ class _InkFAB extends StatelessWidget {
           ),
         ],
       ),
-      child: Icon(icon, color: (filled || accent) ? AppColors.bg : AppColors.label, size: filled ? 30 : 26),
+      child: Icon(icon,
+          color: accent
+              ? AppColors.onAccent
+              : (filled ? AppColors.bg : AppColors.label),
+          size: filled ? 30 : 26),
     );
 
     return GestureDetector(

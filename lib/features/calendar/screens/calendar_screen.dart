@@ -101,6 +101,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
   // crossfades with a scale) or spring back to 1.0. No abrupt jumps mid-pinch.
   double _pinch = 1.0;
   bool _pinching = false;
+  // +1 = zooming IN (year→month→week), -1 = zooming OUT. Drives the depth
+  // direction of the view-change animation (_ZoomSwitcher).
+  int _zoomDir = 1;
+
+  static int _ord(_ViewMode v) => switch (v) {
+        _ViewMode.year => 0,
+        _ViewMode.month => 1,
+        _ViewMode.week => 2,
+      };
 
   // Zoom granularity: year ⇄ month ⇄ week.
   _ViewMode get _zoomedIn => switch (_view) {
@@ -148,6 +157,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   // Switch view mode and — when entering week view — jump to the page that
   // contains the currently selected/tapped day, not always the current week.
   void _switchView(_ViewMode next) {
+    if (next == _view) return;
     if (next == _ViewMode.week && _view != _ViewMode.week) {
       final targetMonday = _mondayOf(_selected);
       final diff = targetMonday.difference(_weekAnchor).inDays ~/ 7;
@@ -157,7 +167,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
         if (_weekCtrl.hasClients) _weekCtrl.jumpToPage(targetPage);
       });
     }
-    setState(() => _view = next);
+    setState(() {
+      _zoomDir = _ord(next) > _ord(_view) ? 1 : -1;
+      _view = next;
+    });
   }
 
   @override
@@ -233,31 +246,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
               // Tracks the fingers instantly while pinching, then springs
               // back to rest — this is what makes the zoom feel continuous.
               scale: _visualScale,
-              duration: _pinching
-                  ? Duration.zero
-                  : const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeIn,
-                transitionBuilder: (child, anim) => FadeTransition(
-                  opacity: anim,
-                  child: ScaleTransition(
-                    scale: Tween<double>(begin: 0.92, end: 1.0).animate(anim),
-                    child: child,
+              duration: _pinching ? Duration.zero : AppMotion.fast,
+              curve: AppMotion.standard,
+              child: _ZoomSwitcher(
+                view: _view,
+                direction: _zoomDir,
+                child: switch (_view) {
+                  _ViewMode.year => _YearView(
+                    onMonthTap: (_) => _switchView(_ViewMode.month),
                   ),
-                ),
-                child: KeyedSubtree(
-                  key: ValueKey(_view),
-                  child: switch (_view) {
-                    _ViewMode.year => _YearView(
-                      onMonthTap: (_) => _switchView(_ViewMode.month),
-                    ),
-                    _ViewMode.month => _buildMonthView(),
-                    _ViewMode.week  => _buildWeekView(),
-                  },
-                ),
+                  _ViewMode.month => _buildMonthView(),
+                  _ViewMode.week  => _buildWeekView(),
+                },
               ),
             ),
           ),
@@ -326,6 +326,84 @@ class _CalendarScreenState extends State<CalendarScreen> {
       );
 }
 
+// ── Depth zoom switcher (Year ⇄ Month ⇄ Week) ─────────────────────────────────
+// A real "diving" zoom rather than a flat crossfade: zooming IN, the new
+// (deeper) view settles down from slightly enlarged while the old recedes and
+// fades; zooming OUT mirrors it. Driven by one controller with the emphasized
+// curve so it lands softly — the human-feeling motion the brief asked for.
+class _ZoomSwitcher extends StatefulWidget {
+  final _ViewMode view;
+  final int direction; // +1 zoom in, -1 zoom out
+  final Widget child;
+  const _ZoomSwitcher({
+    required this.view,
+    required this.direction,
+    required this.child,
+  });
+  @override
+  State<_ZoomSwitcher> createState() => _ZoomSwitcherState();
+}
+
+class _ZoomSwitcherState extends State<_ZoomSwitcher>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: AppMotion.base, value: 1);
+  late Widget _current = widget.child;
+  Widget? _previous;
+  int _dir = 1;
+
+  @override
+  void didUpdateWidget(covariant _ZoomSwitcher old) {
+    super.didUpdateWidget(old);
+    if (widget.view != old.view) {
+      _previous = _current;
+      _current = widget.child;
+      _dir = widget.direction;
+      _c.forward(from: 0);
+    } else if (widget.child != _current) {
+      _current = widget.child; // same view, content rebuilt — swap silently
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = AppMotion.emphasized.transform(_c.value);
+        // Incoming: zoom-in starts a touch large (1.08) and settles; zoom-out
+        // starts small (0.92) and grows. Outgoing does the complementary move.
+        final inFrom  = _dir > 0 ? 1.08 : 0.92;
+        final outTo   = _dir > 0 ? 0.92 : 1.08;
+        final incoming = Opacity(
+          opacity: t,
+          child: Transform.scale(
+            scale: inFrom + (1.0 - inFrom) * t,
+            child: _current,
+          ),
+        );
+        if (_previous == null || _c.isCompleted) return incoming;
+        return Stack(fit: StackFit.expand, children: [
+          Opacity(
+            opacity: (1 - t).clamp(0.0, 1.0),
+            child: Transform.scale(
+              scale: 1.0 + (outTo - 1.0) * t,
+              child: _previous!,
+            ),
+          ),
+          incoming,
+        ]);
+      },
+    );
+  }
+}
+
 // ── Right-edge zoom rail ──────────────────────────────────────────────────────
 // A vertical glass pill: Year / Month / Week, with a sliding ink indicator.
 // Tapping a level switches the view; mirrors the pinch zoom granularity.
@@ -359,13 +437,13 @@ class _ZoomRail extends StatelessWidget {
           ),
           child: Stack(children: [
             AnimatedPositioned(
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
+              duration: AppMotion.base,
+              curve: AppMotion.spring,
               top: activeIndex * seg + 4,
               left: 4, right: 4, height: seg - 8,
               child: Container(
                 decoration: BoxDecoration(
-                  color: AppColors.label,
+                  color: AppColors.accent,
                   borderRadius: BorderRadius.circular(16),
                 ),
               ),
@@ -381,14 +459,23 @@ class _ZoomRail extends StatelessWidget {
                   child: SizedBox(
                     width: 38, height: seg,
                     child: Center(
-                      child: Text(letter,
+                      // Active letter gently lifts + recolours onto the pill.
+                      child: AnimatedScale(
+                        scale: mode == view ? 1.15 : 1.0,
+                        duration: AppMotion.base,
+                        curve: AppMotion.spring,
+                        child: AnimatedDefaultTextStyle(
+                          duration: AppMotion.fast,
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
                             color: mode == view
-                                ? AppColors.bg
+                                ? AppColors.onAccent
                                 : AppColors.label3,
-                          )),
+                          ),
+                          child: Text(letter),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -677,9 +764,9 @@ class _MonthGridState extends State<_MonthGrid> {
                         width: 34, height: 34,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: today ? AppColors.label : Colors.transparent,
+                          color: today ? AppColors.accent : Colors.transparent,
                           border: (sel && !today)
-                              ? Border.all(color: AppColors.label, width: 1.6)
+                              ? Border.all(color: AppColors.accent, width: 1.6)
                               : null,
                         ),
                         alignment: Alignment.center,
@@ -689,7 +776,7 @@ class _MonthGridState extends State<_MonthGrid> {
                                 fontWeight: (today || sel)
                                     ? FontWeight.w700
                                     : FontWeight.w600,
-                                color: today ? AppColors.bg : AppColors.label)),
+                                color: today ? AppColors.onAccent : AppColors.label)),
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -960,7 +1047,7 @@ class _WeekTimelineState extends State<_WeekTimeline> {
                                 ? FontWeight.w700
                                 : FontWeight.w500,
                             color:
-                                isToday ? AppColors.bg : AppColors.label)),
+                                isToday ? AppColors.onAccent : AppColors.label)),
                   ),
                 ]),
               ),

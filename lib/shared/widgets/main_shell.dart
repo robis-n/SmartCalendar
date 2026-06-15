@@ -4,19 +4,16 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../services/supabase_service.dart';
 
+/// The persistent app shell: the body is the StatefulNavigationShell (three
+/// always-alive branch navigators) and a floating glass tab bar on top.
 class MainShell extends StatefulWidget {
-  final Widget child;
-  const MainShell({super.key, required this.child});
+  final StatefulNavigationShell navigationShell;
+  const MainShell({super.key, required this.navigationShell});
   @override
   State<MainShell> createState() => _MainShellState();
 }
 
 class _MainShellState extends State<MainShell> {
-  // Last rendered tab + slide direction. Updated *synchronously in build*
-  // (never post-frame): going right → content slides in from the right,
-  // going left → from the left, with no race on rapid switches.
-  int _lastIndex = 0;
-  int _dir = 1;
   int _nudgeBadge = 0;
 
   @override
@@ -30,55 +27,31 @@ class _MainShellState extends State<MainShell> {
     if (mounted) setState(() => _nudgeBadge = n);
   }
 
-  static const _routes = ['/dashboard', '/calendar', '/settings'];
-  // Icons-only nav per request → no label strings needed.
   static const _icons = <_NavIcon>[
     _NavIcon(Icons.house_rounded, Icons.house_outlined),
     _NavIcon(Icons.calendar_today_rounded, Icons.calendar_today_outlined),
     _NavIcon(Icons.person_rounded, Icons.person_outline_rounded),
   ];
 
-  int _indexFor(String path) {
-    if (path.startsWith('/calendar')) return 1;
-    if (path.startsWith('/settings') ||
-        path.startsWith('/friends') ||
-        path.startsWith('/analytics') ||
-        path.startsWith('/subscriptions')) {
-      return 2;
-    }
-    return 0;
-  }
-
-  void _onTab(BuildContext context, int i, int current) {
-    if (i == current) return;
-    // Clear nudge badge when switching to profile/friends tab.
+  void _onTab(int i) {
     if (i == 2 && _nudgeBadge > 0) setState(() => _nudgeBadge = 0);
-    context.go(_routes[i]);
+    // goBranch with initialLocation:true when re-tapping the active tab pops
+    // that branch back to its root — the standard iOS tab-bar gesture.
+    widget.navigationShell.goBranch(
+      i,
+      initialLocation: i == widget.navigationShell.currentIndex,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final path       = GoRouterState.of(context).uri.path;
-    final routeIndex = _indexFor(path);
-
-    if (routeIndex != _lastIndex) {
-      _dir = routeIndex > _lastIndex ? 1 : -1;
-      _lastIndex = routeIndex;
-    }
+    final index = widget.navigationShell.currentIndex;
 
     return Scaffold(
       extendBody: true,
       backgroundColor: AppColors.bg,
-      body: ClipRect(
-        // Fully self-controlled directional push (see _DirectionalSwitcher):
-        //   moving to a HIGHER tab → new enters from RIGHT, old exits LEFT
-        //   moving to a LOWER  tab → new enters from LEFT,  old exits RIGHT
-        child: _DirectionalSwitcher(
-          index: routeIndex,
-          direction: _dir,
-          child: RepaintBoundary(child: widget.child),
-        ),
-      ),
+      // The shell content (BranchSwitcher owns the cross-tab animation).
+      body: widget.navigationShell,
 
       bottomNavigationBar: SafeArea(
         top: false,
@@ -107,18 +80,25 @@ class _MainShellState extends State<MainShell> {
                 child: LayoutBuilder(builder: (ctx, c) {
                   final slot = c.maxWidth / _icons.length;
                   return Stack(children: [
-                    // ── Sliding ink bubble — circular pill around the icon ─
+                    // ── Sliding accent pill — springy, like the iOS tab bar ─
                     AnimatedPositioned(
-                      duration: const Duration(milliseconds: 320),
-                      curve: Curves.easeOutCubic,
-                      left: routeIndex * slot,
+                      duration: AppMotion.base,
+                      curve: AppMotion.spring,
+                      left: index * slot,
                       top: 0, bottom: 0, width: slot,
                       child: Center(
                         child: Container(
-                          width: 44, height: 44,
+                          width: 46, height: 46,
                           decoration: BoxDecoration(
-                            color: AppColors.label,
+                            color: AppColors.accent,
                             shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.accent.withValues(alpha: 0.32),
+                                blurRadius: 14,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -128,25 +108,34 @@ class _MainShellState extends State<MainShell> {
                       child: Row(
                         children: List.generate(_icons.length, (i) {
                           final ic = _icons[i];
-                          final selected = routeIndex == i;
+                          final selected = index == i;
                           return Expanded(
                             child: GestureDetector(
                               behavior: HitTestBehavior.opaque,
-                              onTap: () => _onTab(context, i, routeIndex),
+                              onTap: () => _onTab(i),
                               child: Center(
                                 child: Stack(
                                   clipBehavior: Clip.none,
                                   children: [
-                                    AnimatedSwitcher(
-                                      duration: const Duration(milliseconds: 220),
-                                      child: Icon(
-                                        selected ? ic.active : ic.idle,
-                                        key: ValueKey(selected),
-                                        color: selected ? AppColors.bg : AppColors.label3,
-                                        size: 22,
+                                    // Gentle scale-up on the selected icon —
+                                    // the subtle tactile lift Apple uses.
+                                    AnimatedScale(
+                                      scale: selected ? 1.0 : 0.86,
+                                      duration: AppMotion.base,
+                                      curve: AppMotion.spring,
+                                      child: AnimatedSwitcher(
+                                        duration: AppMotion.fast,
+                                        switchInCurve: AppMotion.standard,
+                                        child: Icon(
+                                          selected ? ic.active : ic.idle,
+                                          key: ValueKey(selected),
+                                          color: selected
+                                              ? AppColors.onAccent
+                                              : AppColors.label3,
+                                          size: 23,
+                                        ),
                                       ),
                                     ),
-                                    // Nudge badge — profile tab only
                                     if (i == 2 && _nudgeBadge > 0)
                                       Positioned(
                                         top: -4, right: -4,
@@ -156,7 +145,9 @@ class _MainShellState extends State<MainShell> {
                                             color: AppColors.bg,
                                             shape: BoxShape.circle,
                                             border: Border.all(
-                                              color: selected ? AppColors.label : AppColors.bg2,
+                                              color: selected
+                                                  ? AppColors.accent
+                                                  : AppColors.bg2,
                                               width: 1.5,
                                             ),
                                           ),
@@ -164,7 +155,7 @@ class _MainShellState extends State<MainShell> {
                                             child: Container(
                                               width: 5, height: 5,
                                               decoration: BoxDecoration(
-                                                color: AppColors.label,
+                                                color: AppColors.accent,
                                                 shape: BoxShape.circle,
                                               ),
                                             ),
@@ -195,69 +186,92 @@ class _NavIcon {
   const _NavIcon(this.active, this.idle);
 }
 
-/// Deterministic directional page switch driven by a single AnimationController
-/// — no reliance on framework switcher heuristics, so the direction is always
-/// correct: the incoming page slides in from `direction` and the previous page
-/// slides out the opposite way, both fading. When `index` changes we capture
-/// the old child, set the direction, and run the controller 0→1.
-class _DirectionalSwitcher extends StatefulWidget {
-  final int index;        // current tab index
-  final int direction;    // +1 = moving right (to higher tab), -1 = left
-  final Widget child;
-  const _DirectionalSwitcher({
-    required this.index,
-    required this.direction,
-    required this.child,
+/// Owns the cross-branch transition for [StatefulShellRoute]. All three branch
+/// navigators stay alive (state preserved); only the active one is on stage,
+/// except during a switch when the outgoing and incoming branches slide past
+/// each other and crossfade. Direction follows tab order: to a higher tab the
+/// new branch enters from the right; to a lower tab, from the left.
+class BranchSwitcher extends StatefulWidget {
+  final int currentIndex;
+  final List<Widget> children;
+  const BranchSwitcher({
+    super.key,
+    required this.currentIndex,
+    required this.children,
   });
   @override
-  State<_DirectionalSwitcher> createState() => _DirectionalSwitcherState();
+  State<BranchSwitcher> createState() => _BranchSwitcherState();
 }
 
-class _DirectionalSwitcherState extends State<_DirectionalSwitcher>
+class _BranchSwitcherState extends State<BranchSwitcher>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 300), value: 1);
-  late Widget _current = widget.child;
-  Widget? _previous;
+      vsync: this, duration: AppMotion.base, value: 1);
+  late int _index = widget.currentIndex;
+  int _prev = -1;
   int _dir = 1;
 
   @override
-  void didUpdateWidget(covariant _DirectionalSwitcher old) {
+  void didUpdateWidget(covariant BranchSwitcher old) {
     super.didUpdateWidget(old);
-    if (widget.index != old.index) {
-      // Tab changed → animate the new child in over the old.
-      _previous = _current;
-      _current = widget.child;
-      _dir = widget.direction;
+    if (widget.currentIndex != _index) {
+      _prev = _index;
+      _index = widget.currentIndex;
+      _dir = _index > _prev ? 1 : -1;
       _c.forward(from: 0);
-    } else if (widget.child != _current) {
-      // Same tab, content rebuilt (e.g. data refresh) → swap without animating.
-      _current = widget.child;
     }
   }
 
   @override
-  void dispose() { _c.dispose(); super.dispose(); }
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
-        final t = Curves.easeOutCubic.transform(_c.value);
-        final dx = _dir.toDouble();
-        final incoming = FractionalTranslation(
-          translation: Offset(dx * (1 - t), 0),
-          child: Opacity(opacity: t, child: _current),
+        final t = AppMotion.emphasized.transform(_c.value);
+        final animating = !_c.isCompleted && _prev >= 0;
+        return Stack(
+          fit: StackFit.expand,
+          children: List.generate(widget.children.length, (i) {
+            final isCurrent = i == _index;
+            final isPrev = animating && i == _prev;
+
+            // Keep inactive branches alive but fully off stage (no paint, no
+            // hit-test, tickers paused) so their scroll/state survive.
+            if (!isCurrent && !isPrev) {
+              return Offstage(
+                offstage: true,
+                child: TickerMode(enabled: false, child: widget.children[i]),
+              );
+            }
+
+            // Incoming slides from dir → 0 and fades in; outgoing slides
+            // 0 → -dir and fades out. dx is a screen-width fraction.
+            final dx = isCurrent ? _dir * (1 - t) : -_dir.toDouble() * t;
+            final opacity = (isCurrent ? t : 1 - t).clamp(0.0, 1.0);
+
+            return Positioned.fill(
+              child: IgnorePointer(
+                ignoring: !isCurrent,
+                child: FractionalTranslation(
+                  translation: Offset(dx, 0),
+                  child: Opacity(
+                    opacity: opacity,
+                    child: TickerMode(
+                      enabled: isCurrent,
+                      child: widget.children[i],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
         );
-        if (_previous == null || _c.isCompleted) return incoming;
-        return Stack(children: [
-          FractionalTranslation(
-            translation: Offset(-dx * t, 0),
-            child: Opacity(opacity: 1 - t, child: _previous!),
-          ),
-          incoming,
-        ]);
       },
     );
   }
