@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../services/supabase_service.dart';
+import 'glass_surface.dart';
 
 /// The persistent app shell: the body is the StatefulNavigationShell (three
 /// always-alive branch navigators) and a floating glass tab bar on top.
@@ -66,26 +66,23 @@ class _MainShellState extends ConsumerState<MainShell> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(70, 0, 70, 18),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(34),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(
-                  sigmaX: AppColors.glassBlur, sigmaY: AppColors.glassBlur),
-              child: Container(
-                height: 62,
-                decoration: BoxDecoration(
-                  color: AppColors.glass,
-                  borderRadius: BorderRadius.circular(34),
-                  border: Border.all(color: AppColors.glassBorder, width: 0.8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black
-                          .withValues(alpha: AppColors.isDark ? 0.40 : 0.08),
-                      blurRadius: 24,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
+          child: DecoratedBox(
+            // Drop shadow lives outside the glass clip so it isn't blurred away.
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(34),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black
+                      .withValues(alpha: AppColors.isDark ? 0.40 : 0.08),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
                 ),
+              ],
+            ),
+            child: GlassSurface(
+              borderRadius: BorderRadius.circular(34),
+              child: SizedBox(
+                height: 62,
                 child: LayoutBuilder(builder: (ctx, c) {
                   final slot = c.maxWidth / _icons.length;
                   return Stack(children: [

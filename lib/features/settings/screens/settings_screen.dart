@@ -995,11 +995,13 @@ class _AccentColorPicker extends StatelessWidget {
         const SizedBox(height: 10),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          // Don't clip — otherwise the round glow gets sliced flat at the
-          // viewport edges and reads as a square. Vertical padding gives the
-          // halo room above/below.
-          clipBehavior: Clip.none,
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+          // Clip normally (default Clip.hardEdge) so swatches that overflow
+          // horizontally are hidden by the scroll viewport instead of
+          // bleeding past the card's edges. The vertical padding below is
+          // part of the SCROLLABLE CONTENT, so it grows the viewport's own
+          // height — that gives the selected swatch's glow room to breathe
+          // without being clipped flat, without disabling clipping itself.
+          padding: const EdgeInsets.fromLTRB(2, 14, 2, 6),
           child: Row(children: [
             _swatch(index: 0, name: 'Ink'),
             for (var i = 0; i < kAccentPalettes.length; i++)

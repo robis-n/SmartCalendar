@@ -377,6 +377,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               const SizedBox(height: 10),
 
               // ── Priority ──────────────────────────────
+              // No "Reminders" label — the bell icon + Gentle/Normal/Persistent
+              // chips already say what this is. The 3 chips share the row's
+              // width via Expanded so they can never overflow the card,
+              // regardless of text-scale setting or screen width.
               Container(
                 decoration: BoxDecoration(
                   color: AppColors.card,
@@ -387,40 +391,45 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 child: Row(children: [
                   Icon(Icons.notifications_none_rounded, size: 22, color: AppColors.label),
                   const SizedBox(width: 14),
-                  Text('Reminders', style: TextStyle(fontSize: 16, color: AppColors.label2)),
-                  const Spacer(),
-                  Row(mainAxisSize: MainAxisSize.min, children: [
+                  Expanded(
+                    child: Row(children: [
                       for (final (p, label) in [('low', 'Gentle'), ('medium', 'Normal'), ('high', 'Persistent')]) ...[
                         if (p != 'low') const SizedBox(width: 6),
-                        GestureDetector(
-                          onTap: !owner ? null : () async {
-                            await SupabaseService.updateTask(widget.taskId, {'priority': p});
-                            // Re-arm with the new nudge intensity right away.
-                            if (sched != null && status == 'pending') {
-                              await NotificationService().scheduleTaskNotifications(
-                                  taskId: widget.taskId, taskTitle: t['title'] ?? '',
-                                  deadline: sched, priority: p);
-                            }
-                            _load();
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                            decoration: BoxDecoration(
-                              color: priority == p ? AppColors.label : AppColors.bg2,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              label,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: priority == p ? AppColors.bg : AppColors.label3,
-                                fontWeight: priority == p ? FontWeight.w700 : FontWeight.w500,
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: !owner ? null : () async {
+                              await SupabaseService.updateTask(widget.taskId, {'priority': p});
+                              // Re-arm with the new nudge intensity right away.
+                              if (sched != null && status == 'pending') {
+                                await NotificationService().scheduleTaskNotifications(
+                                    taskId: widget.taskId, taskTitle: t['title'] ?? '',
+                                    deadline: sched, priority: p);
+                              }
+                              _load();
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: priority == p ? AppColors.label : AppColors.bg2,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                label,
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: priority == p ? AppColors.bg : AppColors.label3,
+                                  fontWeight: priority == p ? FontWeight.w700 : FontWeight.w500,
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ],
                     ]),
+                  ),
                 ]),
               ),
 

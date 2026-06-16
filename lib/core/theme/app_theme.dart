@@ -74,7 +74,10 @@ class AppColors {
 
   // ── Glass (iOS "material" translucent chrome) ────────────────────
   // Derived from the surface so the chrome carries the same hue as the app.
-  static Color get glass => card.withValues(alpha: _dark ? 0.72 : 0.78);
+  // Less opaque than before — true vibrancy materials let more of the
+  // blurred+saturated backdrop show through; see GlassSurface for the rest
+  // of the recipe (gradient fill, rim highlight, sheen).
+  static Color get glass => card.withValues(alpha: _dark ? 0.58 : 0.66);
   static Color get glassBorder =>
       _dark ? Colors.white.withValues(alpha: 0.14)
             : Colors.white.withValues(alpha: 0.55);

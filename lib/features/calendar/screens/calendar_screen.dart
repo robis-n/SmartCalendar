@@ -1,11 +1,11 @@
 import 'dart:math' show max;
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
 import '../../../services/supabase_service.dart';
+import '../../../shared/widgets/glass_surface.dart';
 import '../../tasks/screens/add_task_screen.dart';
 import '../../tasks/screens/task_detail_screen.dart';
 import 'calendar_event_screen.dart';
@@ -186,8 +186,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         onScaleStart: _onScaleStart,
         onScaleUpdate: _onScaleUpdate,
         onScaleEnd: _onScaleEnd,
-        child: Stack(children: [
-        Column(children: [
+        child: Column(children: [
           // ── Top bar ────────────────────────────────────────
           SafeArea(
             bottom: false,
@@ -245,37 +244,43 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ],
 
           // ── View body ──────────────────────────────────────
+          // Its own Stack, so the zoom rail centres on THIS region — not the
+          // whole screen including the header above it.
           Expanded(
-            child: AnimatedScale(
-              // Tracks the fingers instantly while pinching, then springs
-              // back to rest — this is what makes the zoom feel continuous.
-              scale: _visualScale,
-              duration: _pinching ? Duration.zero : AppMotion.fast,
-              curve: AppMotion.standard,
-              child: _ZoomSwitcher(
-                view: _view,
-                direction: _zoomDir,
-                child: switch (_view) {
-                  _ViewMode.year => _YearView(
-                    onMonthTap: (_) => _switchView(_ViewMode.month),
+            child: Stack(children: [
+              Positioned.fill(
+                child: AnimatedScale(
+                  // Tracks the fingers instantly while pinching, then springs
+                  // back to rest — this is what makes the zoom feel continuous.
+                  scale: _visualScale,
+                  duration: _pinching ? Duration.zero : AppMotion.fast,
+                  curve: AppMotion.standard,
+                  child: _ZoomSwitcher(
+                    view: _view,
+                    direction: _zoomDir,
+                    child: switch (_view) {
+                      _ViewMode.year => _YearView(
+                        onMonthTap: (_) => _switchView(_ViewMode.month),
+                      ),
+                      _ViewMode.month => _buildMonthView(),
+                      _ViewMode.week  => _buildWeekView(),
+                    },
                   ),
-                  _ViewMode.month => _buildMonthView(),
-                  _ViewMode.week  => _buildWeekView(),
-                },
+                ),
               ),
-            ),
+              // ── Right-edge zoom rail (Year / Month / Week) ──
+              // Bottom inset keeps it clear of the floating nav bar; centred
+              // within this region only, so it's truly vertically centred on
+              // the visible calendar grid rather than the whole screen.
+              Positioned(
+                right: 6, top: 0, bottom: 120,
+                child: Center(child: _ZoomRail(
+                  view: _view,
+                  onPick: _switchView,
+                )),
+              ),
+            ]),
           ),
-        ]),
-        // ── Right-edge zoom rail (Year / Month / Week) ──
-        // Bottom inset keeps it clear of the floating nav bar; centred in the
-        // remaining space.
-        Positioned(
-          right: 6, top: 0, bottom: 120,
-          child: Center(child: _ZoomRail(
-            view: _view,
-            onPick: _switchView,
-          )),
-        ),
         ]),
       ),
     );
@@ -453,20 +458,17 @@ class _ZoomRailState extends State<_ZoomRail> {
       onTapDown: (d) { _lastIndex = null; _pickFromDy(d.localPosition.dy); },
       onVerticalDragStart: (d) { _lastIndex = null; _pickFromDy(d.localPosition.dy); },
       onVerticalDragUpdate: (d) => _pickFromDy(d.localPosition.dy),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(22),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(
-              sigmaX: AppColors.glassBlur, sigmaY: AppColors.glassBlur),
-          child: Container(
+      child: DecoratedBox(
+        // Drop shadow outside the glass clip so it isn't blurred away.
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: cardShadow,
+        ),
+        child: GlassSurface(
+          borderRadius: BorderRadius.circular(22),
+          child: SizedBox(
             width: _w,
             height: h,
-            decoration: BoxDecoration(
-              color: AppColors.glass,
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: AppColors.glassBorder, width: 0.8),
-              boxShadow: cardShadow,
-            ),
             // Letters are non-interactive — the whole pill handles tap + drag.
             child: IgnorePointer(
               child: Stack(children: [
@@ -966,11 +968,12 @@ class _WeekTimelineState extends State<_WeekTimeline> {
   final _scrollCtrl = ScrollController();
   int _lastHapticHour = -1;
 
-  // 7 AM – 10 PM at 44 px/h = 660 px total — fits most screens without
-  // needing to scroll to see the evening (previously 56 px/h was 952 px).
+  // Full 24-hour day (midnight to midnight), scrollable — nothing hidden.
+  // Initial scroll lands near the current hour so the visible portion on
+  // open is still the relevant part of the day.
   static const double _hourH  = 44.0;
-  static const int    _startH = 7;
-  static const int    _endH   = 22;
+  static const int    _startH = 0;
+  static const int    _endH   = 23;
   static const double _labelW = 46.0;
 
   @override
@@ -980,7 +983,12 @@ class _WeekTimelineState extends State<_WeekTimeline> {
     _scrollCtrl.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
-        _scrollCtrl.jumpTo((8 - _startH) * _hourH);
+        // Open scrolled to roughly the current hour (with a little headroom
+        // above it for context) rather than always 8 AM, now that the full
+        // day is in range — matches how Apple Calendar opens.
+        final nowHour = DateTime.now().hour;
+        final target = (nowHour - 1).clamp(_startH, _endH);
+        _scrollCtrl.jumpTo((target - _startH) * _hourH);
       }
     });
   }
@@ -1406,18 +1414,9 @@ class _DaySheetState extends State<_DaySheet> {
       maxChildSize: 0.92,
       snap: true,
       snapSizes: const [0.52, 0.75, 0.92],
-      builder: (ctx, scrollCtrl) => ClipRRect(
+      builder: (ctx, scrollCtrl) => GlassSurface(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(
-              sigmaX: AppColors.glassBlur, sigmaY: AppColors.glassBlur),
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.glass,
-              border: Border(
-                  top: BorderSide(color: AppColors.glassBorder, width: 0.8)),
-            ),
-            child: Column(children: [
+        child: Column(children: [
               // Drag handle
               const SizedBox(height: 12),
               Container(
@@ -1540,8 +1539,6 @@ class _DaySheetState extends State<_DaySheet> {
               ),
             ]),
           ),
-        ),
-      ),
     );
   }
 }

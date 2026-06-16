@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +8,7 @@ import '../../../core/utils/recurrence.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
+import '../../../services/quote_service.dart';
 import '../../../services/supabase_service.dart';
 import '../../../shared/widgets/swipe_actions.dart';
 import '../../../shared/widgets/wheel_time_picker.dart';
@@ -45,25 +45,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   static String _cTier = AppConstants.tierFree;
   static bool _hasCache = false;
   static String? _cUid; // which account the cache belongs to
+  static String? _cQuote; // today's live quote, once fetched
+
+  // Seeded instantly from the offline rotation (or a same-day cached live
+  // fetch) so something always paints right away; refreshed in the
+  // background by _loadQuote.
+  String _quote = _cQuote ?? quoteOfTheDay();
 
   static DateTime get _mondayOfThisWeek {
     final n = DateTime.now();
     return DateTime(n.year, n.month, n.day).subtract(Duration(days: n.weekday - 1));
   }
 
-  // ── Live clock ─────────────────────────────────────────
-  // Computed each build so it always reflects the current 12h/24h preference
-  // (the hero rebuilds on the 30s tick and whenever the format flips).
-  String get _clockTime => TimeFmt.t(DateTime.now());
-  Timer? _clockTimer;
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
-    });
     // Seed from cache for an instant paint, then refresh silently — but only
     // if the cache belongs to the account that's signed in now (switching
     // accounts must never show the previous user's tasks).
@@ -79,12 +76,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
       _loading = false;
     }
     _load();
+    _loadQuote();
+  }
+
+  // Live quote, fetched once per day (cached) — never blocks the rest of
+  // Home, and only called when the feature is actually visible.
+  Future<void> _loadQuote() async {
+    if (!(ref.read(featureFlagsProvider)[Feature.quotes] ?? false)) return;
+    final q = await QuoteService.todayQuote();
+    _cQuote = q;
+    if (mounted) setState(() => _quote = q);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _clockTimer?.cancel();
     super.dispose();
   }
 
@@ -500,12 +506,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(24, 28, 24, 8),
                         child: Column(children: [
-                          Text(_clockTime,
-                            style: TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w700,
-                              color: AppColors.label3, letterSpacing: 0.5,
-                            )),
-                          const SizedBox(height: 10),
                           Text(_greeting,
                             textAlign: TextAlign.center,
                             style: TextStyle(
@@ -540,7 +540,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                             ),
                           ),
                           Expanded(
-                            child: Text(quoteOfTheDay(),
+                            child: Text(_quote,
                                 style: TextStyle(
                                     fontSize: 14,
                                     fontStyle: FontStyle.italic,
