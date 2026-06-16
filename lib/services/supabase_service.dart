@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/utils/time_utils.dart';
+import '../core/utils/recurrence.dart';
 
 class SupabaseService {
   static SupabaseClient get client => Supabase.instance.client;
@@ -20,6 +21,7 @@ class SupabaseService {
         .from('tasks')
         .select()
         .eq('user_id', userId)
+        .neq('status', 'archived')
         .gte('scheduled_time', start)
         .lte('scheduled_time', end)
         .order('scheduled_time');
@@ -35,6 +37,7 @@ class SupabaseService {
         .from('tasks')
         .select('id, title, scheduled_time, status')
         .eq('user_id', userId)
+        .neq('status', 'archived')
         .gte('scheduled_time', start)
         .lte('scheduled_time', end);
     return List<Map<String, dynamic>>.from(res);
@@ -50,6 +53,7 @@ class SupabaseService {
         .select()
         .eq('user_id', userId)
         .neq('status', 'verified')
+        .neq('status', 'archived')
         .filter('scheduled_time', 'is', null)
         .order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(res);
@@ -87,6 +91,7 @@ class SupabaseService {
         .select()
         .eq('user_id', userId)
         .neq('status', 'verified')
+        .neq('status', 'archived')
         .lt('scheduled_time', now)
         .order('scheduled_time', ascending: false)
         .limit(limit);
@@ -105,6 +110,7 @@ class SupabaseService {
         .from('tasks')
         .select('scheduled_time')
         .eq('user_id', userId)
+        .neq('status', 'archived')
         .gte('scheduled_time', start)
         .lt('scheduled_time', end);
     final offsets = <int>{};
@@ -129,6 +135,7 @@ class SupabaseService {
         .from('tasks')
         .select()
         .eq('user_id', userId)
+        .neq('status', 'archived')
         .gte('scheduled_time', start)
         .lt('scheduled_time', end)
         .order('scheduled_time');
@@ -195,6 +202,54 @@ class SupabaseService {
       if (status == 'verified' || status == 'failed')
         'completed_at': tsToDb(DateTime.now()),
     }).eq('id', taskId);
+  }
+
+  /// Hide a task without deleting it (swipe → Archive). Excluded from all the
+  /// list queries above.
+  static Future<void> archiveTask(String taskId) async {
+    await client.from('tasks').update({'status': 'archived'}).eq('id', taskId);
+  }
+
+  /// Permanently remove every completed (verified) task for the current user —
+  /// the "Clear completed" action. Clears FK dependents first.
+  static Future<int> clearCompletedTasks() async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return 0;
+    final done = List<Map<String, dynamic>>.from(
+      await client.from('tasks').select('id')
+          .eq('user_id', userId).eq('status', 'verified'),
+    );
+    final ids = done.map((t) => t['id'] as String).toList();
+    if (ids.isEmpty) return 0;
+    await client.from('task_verifications').delete().inFilter('task_id', ids);
+    await client.from('collaborations').delete().inFilter('task_id', ids);
+    await client.from('tasks').delete().inFilter('id', ids);
+    return ids.length;
+  }
+
+  /// When a repeating task is completed, create its next occurrence so it
+  /// "repeats". Returns the new task row, or null if it doesn't recur / has no
+  /// scheduled time to advance. Notifications are armed by the caller.
+  static Future<Map<String, dynamic>?> spawnNextOccurrence(
+      Map<String, dynamic> task) async {
+    final rule = (task['recurrence'] as Map?)?.cast<String, dynamic>();
+    final sched = tsTryFromDb(task['scheduled_time'] as String?);
+    if (sched == null) return null; // global tasks don't auto-repeat
+    final next = Recurrence.nextOccurrence(sched, rule);
+    if (next == null) return null;
+    final uid = client.auth.currentUser?.id;
+    return createTask({
+      'user_id': uid,
+      'title': task['title'],
+      'description': task['description'],
+      'scheduled_time': tsToDb(next),
+      'all_day': task['all_day'] ?? false,
+      'status': 'pending',
+      'ai_generated': false,
+      'priority': task['priority'] ?? 'medium',
+      'verification_required': task['verification_required'] ?? true,
+      'recurrence': rule,
+    });
   }
 
   /// Read a task's linked device-calendar events (and optionally clear the

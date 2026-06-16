@@ -137,6 +137,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     selectedIndex: ref.watch(accentColorProvider),
                     onPick: (i) => ref.read(accentColorProvider.notifier).pick(i),
                   ),
+                  const SizedBox(height: 12),
+                  _TimeFormatSelector(
+                    use24h: ref.watch(timeFormatProvider),
+                    onChanged: (v) => ref.read(timeFormatProvider.notifier).set(v),
+                  ),
                   const SizedBox(height: 22),
 
                   // ── Features — show only what you use ─────────────
@@ -850,6 +855,60 @@ class _ThemeSelector extends StatelessWidget {
   }
 }
 
+// ── Time-format segmented selector (12h / 24h) ────────────────────────────────
+
+class _TimeFormatSelector extends StatelessWidget {
+  final bool use24h;
+  final ValueChanged<bool> onChanged;
+  const _TimeFormatSelector({required this.use24h, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final options = [(false, '12-hour', '9:00 PM'), (true, '24-hour', '21:00')];
+    return Container(
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.separator, width: 0.5),
+        boxShadow: cardShadow,
+      ),
+      child: Row(children: options.map((o) {
+        final selected = use24h == o.$1;
+        return Expanded(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => onChanged(o.$1),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: selected ? AppColors.label : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(children: [
+                Text(o.$2,
+                    style: TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w700,
+                      color: selected ? AppColors.bg : AppColors.label3,
+                    )),
+                const SizedBox(height: 2),
+                Text(o.$3,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: selected
+                          ? AppColors.bg.withValues(alpha: 0.7)
+                          : AppColors.label3,
+                    )),
+              ]),
+            ),
+          ),
+        );
+      }).toList()),
+    );
+  }
+}
+
 // ── Text-size segmented selector (S / M / L / XL) ─────────────────────────────
 
 class _TextSizeSelector extends StatelessWidget {
@@ -933,10 +992,14 @@ class _AccentColorPicker extends StatelessWidget {
                   fontWeight: FontWeight.w500,
                   color: AppColors.label)),
         ]),
-        const SizedBox(height: 14),
+        const SizedBox(height: 10),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.only(right: 6),
+          // Don't clip — otherwise the round glow gets sliced flat at the
+          // viewport edges and reads as a square. Vertical padding gives the
+          // halo room above/below.
+          clipBehavior: Clip.none,
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
           child: Row(children: [
             _swatch(index: 0, name: 'Ink'),
             for (var i = 0; i < kAccentPalettes.length; i++)
@@ -976,8 +1039,12 @@ class _AccentColorPicker extends StatelessWidget {
                 color: selected ? accent : AppColors.separator,
                 width: selected ? 2.5 : 1,
               ),
+              // Soft circular halo around the selected swatch (rounded, not
+              // clipped). spreadRadius keeps it even all the way around.
               boxShadow: selected
-                  ? [BoxShadow(color: accent.withValues(alpha: 0.4), blurRadius: 8)]
+                  ? [BoxShadow(
+                      color: accent.withValues(alpha: 0.45),
+                      blurRadius: 14, spreadRadius: 1)]
                   : null,
             ),
             alignment: Alignment.center,

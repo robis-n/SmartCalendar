@@ -44,6 +44,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
     _base = DateTime(n.year, n.month);
     _weekAnchor = _mondayOf(n);
     _weekCtrl = PageController(initialPage: _weekAnchorPage);
+    // Warm the cache so the grid is populated the instant the tab appears,
+    // and a few months out so scrolling forward isn't blank.
+    _MonthCache.prefetch(_base, radius: 4);
   }
 
   @override
@@ -79,6 +82,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _openDay(DateTime day) async {
+    HapticFeedback.selectionClick();
     setState(() => _selected = day);
     await showModalBottomSheet<void>(
       context: context,
@@ -263,8 +267,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
         ]),
         // ── Right-edge zoom rail (Year / Month / Week) ──
+        // Bottom inset keeps it clear of the floating nav bar; centred in the
+        // remaining space.
         Positioned(
-          right: 6, top: 0, bottom: 0,
+          right: 6, top: 0, bottom: 120,
           child: Center(child: _ZoomRail(
             view: _view,
             onPick: _switchView,
@@ -405,82 +411,104 @@ class _ZoomSwitcherState extends State<_ZoomSwitcher>
 }
 
 // ── Right-edge zoom rail ──────────────────────────────────────────────────────
-// A vertical glass pill: Year / Month / Week, with a sliding ink indicator.
-// Tapping a level switches the view; mirrors the pinch zoom granularity.
-class _ZoomRail extends StatelessWidget {
+// A vertical glass pill: Year / Month / Week, with a sliding accent indicator.
+// You can TAP a level or DRAG through them like a slider — the indicator
+// follows your finger and a haptic ticks at each level. Mirrors pinch zoom.
+class _ZoomRail extends StatefulWidget {
   final _ViewMode view;
   final ValueChanged<_ViewMode> onPick;
   const _ZoomRail({required this.view, required this.onPick});
 
+  @override
+  State<_ZoomRail> createState() => _ZoomRailState();
+}
+
+class _ZoomRailState extends State<_ZoomRail> {
   static const _items = [
     (_ViewMode.year, 'Y'),
     (_ViewMode.month, 'M'),
     (_ViewMode.week, 'W'),
   ];
+  static const double _seg = 46.0;
+  static const double _w = 42.0;
+
+  int? _lastIndex; // last segment the finger was over (for per-tick haptics)
+
+  // Map a vertical offset within the pill to a level; fire only on change.
+  void _pickFromDy(double dy) {
+    final i = (dy / _seg).floor().clamp(0, _items.length - 1);
+    if (i != _lastIndex) {
+      _lastIndex = i;
+      HapticFeedback.selectionClick();
+      widget.onPick(_items[i].$1);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    const seg = 40.0;
-    final activeIndex = _items.indexWhere((e) => e.$1 == view);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(
-            sigmaX: AppColors.glassBlur, sigmaY: AppColors.glassBlur),
-        child: Container(
-          width: 38,
-          decoration: BoxDecoration(
-            color: AppColors.glass,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppColors.glassBorder, width: 0.8),
-            boxShadow: cardShadow,
-          ),
-          child: Stack(children: [
-            AnimatedPositioned(
-              duration: AppMotion.base,
-              curve: AppMotion.spring,
-              top: activeIndex * seg + 4,
-              left: 4, right: 4, height: seg - 8,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppColors.accent,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
+    final activeIndex = _items.indexWhere((e) => e.$1 == widget.view);
+    final h = _seg * _items.length;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (d) { _lastIndex = null; _pickFromDy(d.localPosition.dy); },
+      onVerticalDragStart: (d) { _lastIndex = null; _pickFromDy(d.localPosition.dy); },
+      onVerticalDragUpdate: (d) => _pickFromDy(d.localPosition.dy),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(
+              sigmaX: AppColors.glassBlur, sigmaY: AppColors.glassBlur),
+          child: Container(
+            width: _w,
+            height: h,
+            decoration: BoxDecoration(
+              color: AppColors.glass,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppColors.glassBorder, width: 0.8),
+              boxShadow: cardShadow,
             ),
-            Column(mainAxisSize: MainAxisSize.min, children: [
-              for (final (mode, letter) in _items)
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    onPick(mode);
-                  },
-                  child: SizedBox(
-                    width: 38, height: seg,
-                    child: Center(
-                      // Active letter gently lifts + recolours onto the pill.
-                      child: AnimatedScale(
-                        scale: mode == view ? 1.15 : 1.0,
-                        duration: AppMotion.base,
-                        curve: AppMotion.spring,
-                        child: AnimatedDefaultTextStyle(
-                          duration: AppMotion.fast,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: mode == view
-                                ? AppColors.onAccent
-                                : AppColors.label3,
-                          ),
-                          child: Text(letter),
-                        ),
-                      ),
+            // Letters are non-interactive — the whole pill handles tap + drag.
+            child: IgnorePointer(
+              child: Stack(children: [
+                AnimatedPositioned(
+                  duration: AppMotion.base,
+                  curve: AppMotion.spring,
+                  top: activeIndex * _seg + 4,
+                  left: 4, right: 4, height: _seg - 8,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.accent,
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                 ),
-            ]),
-          ]),
+                Column(mainAxisSize: MainAxisSize.min, children: [
+                  for (final (mode, letter) in _items)
+                    SizedBox(
+                      width: _w, height: _seg,
+                      child: Center(
+                        child: AnimatedScale(
+                          scale: mode == widget.view ? 1.18 : 1.0,
+                          duration: AppMotion.base,
+                          curve: AppMotion.spring,
+                          child: AnimatedDefaultTextStyle(
+                            duration: AppMotion.fast,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: mode == widget.view
+                                  ? AppColors.onAccent
+                                  : AppColors.label3,
+                            ),
+                            child: Text(letter),
+                          ),
+                        ),
+                      ),
+                    ),
+                ]),
+              ]),
+            ),
+          ),
         ),
       ),
     );
@@ -587,6 +615,74 @@ class _CalChip {
        this.color});
 }
 
+/// Process-wide cache of month → day→chips, so re-entering the calendar or
+/// scrolling back to a month paints instantly. [prefetch] warms neighbouring
+/// months in the background for buttery scrolling. Invalidated per-month when a
+/// task changes (reloadToken).
+class _MonthCache {
+  static final Map<String, Map<int, List<_CalChip>>> _data = {};
+  static final Map<String, Future<Map<int, List<_CalChip>>>> _inflight = {};
+
+  static String _key(DateTime m) => '${m.year}-${m.month}';
+
+  static Map<int, List<_CalChip>>? peek(DateTime month) => _data[_key(month)];
+
+  static void invalidate(DateTime month) {
+    _data.remove(_key(month));
+    _inflight.remove(_key(month));
+  }
+
+  /// Build (or reuse an in-flight build of) a month's chips. Always refreshes
+  /// the cache with the latest result.
+  static Future<Map<int, List<_CalChip>>> load(DateTime month) {
+    final key = _key(month);
+    final pending = _inflight[key];
+    if (pending != null) return pending;
+    final future = _build(month);
+    _inflight[key] = future;
+    future.whenComplete(() => _inflight.remove(key));
+    return future;
+  }
+
+  /// Fire-and-forget warm-up for a span of months around [center].
+  static void prefetch(DateTime center, {int radius = 3}) {
+    for (var i = -radius; i <= radius; i++) {
+      final m = DateTime(center.year, center.month + i);
+      if (!_data.containsKey(_key(m)) && !_inflight.containsKey(_key(m))) {
+        load(m);
+      }
+    }
+  }
+
+  static Future<Map<int, List<_CalChip>>> _build(DateTime month) async {
+    final result = <int, List<_CalChip>>{};
+    final tasks =
+        await SupabaseService.getTasksForMonth(month.year, month.month);
+    for (final t in tasks) {
+      if (t['scheduled_time'] == null) continue;
+      final day = tsFromDb(t['scheduled_time'] as String).day;
+      result.putIfAbsent(day, () => []).add(_CalChip(
+            title: t['title'] as String? ?? '',
+            isTask: true,
+            status: t['status'] as String? ?? 'pending',
+          ));
+    }
+    if (DeviceCalendarService.enabled) {
+      try {
+        final devEvents = await DeviceCalendarService.eventsForMonth(month);
+        for (final e in devEvents) {
+          if (e.start == null) continue;
+          if (e.title.trim().isEmpty) continue;
+          result.putIfAbsent(e.start!.day, () => []).add(
+              _CalChip(title: e.title, isTask: false, color: e.color));
+        }
+      } catch (_) {}
+    }
+    _data[_key(month)] = result;
+    return result;
+  }
+}
+
 class _MonthGrid extends StatefulWidget {
   final DateTime month;
   final DateTime selected;
@@ -613,44 +709,25 @@ class _MonthGridState extends State<_MonthGrid> {
   @override
   void initState() {
     super.initState();
+    // Paint instantly from cache (no blank-then-pop while scrolling through
+    // months), then refresh in the background.
+    _chips = _MonthCache.peek(widget.month) ?? {};
     _load();
+    // As the user scrolls into a month, warm its neighbours for the next swipe.
+    _MonthCache.prefetch(widget.month, radius: 1);
   }
 
   @override
   void didUpdateWidget(covariant _MonthGrid old) {
     super.didUpdateWidget(old);
-    if (old.reloadToken != widget.reloadToken) _load();
+    if (old.reloadToken != widget.reloadToken) {
+      _MonthCache.invalidate(widget.month);
+      _load();
+    }
   }
 
   Future<void> _load() async {
-    final tasks = await SupabaseService.getTasksForMonth(
-        widget.month.year, widget.month.month);
-
-    final result = <int, List<_CalChip>>{};
-    for (final t in tasks) {
-      if (t['scheduled_time'] == null) continue;
-      final day = tsFromDb(t['scheduled_time'] as String).day;
-      result.putIfAbsent(day, () => []).add(_CalChip(
-        title: t['title'] as String? ?? '',
-        isTask: true,
-        status: t['status'] as String? ?? 'pending',
-      ));
-    }
-
-    // Device events (local read — only if user has them enabled)
-    if (DeviceCalendarService.enabled) {
-      try {
-        final devEvents =
-            await DeviceCalendarService.eventsForMonth(widget.month);
-        for (final e in devEvents) {
-          if (e.start == null) continue;
-          if (e.title.trim().isEmpty) continue; // never render blank boxes
-          result.putIfAbsent(e.start!.day, () => []).add(
-              _CalChip(title: e.title, isTask: false, color: e.color));
-        }
-      } catch (_) {}
-    }
-
+    final result = await _MonthCache.load(widget.month);
     if (!mounted) return;
     setState(() => _chips = result);
   }
@@ -1127,9 +1204,7 @@ class _WeekTimelineState extends State<_WeekTimeline> {
                       return Positioned(
                         top: y - 6, left: 0, width: _labelW - 6,
                         child: Text(
-                          hour == 12
-                              ? '12 PM'
-                              : hour < 12 ? '$hour AM' : '${hour - 12} PM',
+                          TimeFmt.hour(hour),
                           textAlign: TextAlign.right,
                           style: TextStyle(
                               fontSize: 9,
@@ -1316,8 +1391,7 @@ class _DaySheetState extends State<_DaySheet> {
   }
 
   String _fmt(DateTime d) {
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+    return TimeFmt.t(d);
   }
 
   @override

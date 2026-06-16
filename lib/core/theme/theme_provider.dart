@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'app_theme.dart';
+import '../utils/time_utils.dart';
 
 /// Name of the Hive box opened in main().
 const String kSettingsBox = 'settings';
@@ -114,13 +115,17 @@ class Feature {
   static const weekStrip  = 'home_week_strip';
   static const anytime    = 'home_anytime';
   static const weekAgenda = 'home_week_agenda';
-  static const social     = 'social';   // friends, challenges, statistics
+  static const undone     = 'home_undone';   // unfinished-tasks button
+  static const quotes     = 'home_quotes';   // daily motivational quote card
+  static const social     = 'social';        // friends, challenges, statistics
 
   // (key, title, subtitle) for the settings checklist.
   static const List<(String, String, String)> all = [
     (weekStrip,  'Week strip',        'The swipeable week at the top of Home'),
     (anytime,    'Anytime list',      'Timeless reminders with no deadline'),
-    (weekAgenda, "This week agenda",  "Upcoming days listed on Home"),
+    (weekAgenda, 'This week agenda',  'Upcoming days listed on Home'),
+    (undone,     'Unfinished button', 'Quick access to overdue tasks on Home'),
+    (quotes,     'Daily quote',       'A little motivation at the top of Home'),
     (social,     'Friends & social',  'Friends, challenges and statistics'),
   ];
 }
@@ -134,6 +139,7 @@ class FeatureFlagsNotifier extends StateNotifier<Map<String, bool>> {
 
   static Map<String, bool> _load() {
     final out = {for (final f in Feature.all) f.$1: true};
+    out[Feature.quotes] = false; // opt-in — off by default to stay lean
     try {
       final raw = Hive.box(kSettingsBox).get(_kFeaturesKey);
       if (raw is Map) {
@@ -155,4 +161,57 @@ class FeatureFlagsNotifier extends StateNotifier<Map<String, bool>> {
       Hive.box(kSettingsBox).put(_kFeaturesKey, state);
     } catch (_) {}
   }
+}
+
+// ── Time format (12h AM/PM vs 24h) ───────────────────────────────────────────
+// State is `use24h`. Mirrored into TimeFmt.use24h (set in app.dart each frame)
+// so every clock label across the app respects it from one place.
+const String _kUse24hKey = 'time_use_24h';
+
+final timeFormatProvider =
+    StateNotifierProvider<TimeFormatNotifier, bool>(
+        (ref) => TimeFormatNotifier());
+
+class TimeFormatNotifier extends StateNotifier<bool> {
+  TimeFormatNotifier() : super(_load()) {
+    TimeFmt.use24h = state;
+  }
+
+  static bool _load() {
+    try {
+      return Hive.box(kSettingsBox).get(_kUse24hKey, defaultValue: false) as bool;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void set(bool use24h) {
+    state = use24h;
+    TimeFmt.use24h = use24h;
+    try {
+      Hive.box(kSettingsBox).put(_kUse24hKey, use24h);
+    } catch (_) {}
+  }
+}
+
+// ── Daily quote ──────────────────────────────────────────────────────────────
+// A tiny offline rotation — no network. Index by day-of-year so it changes
+// once a day and is stable within the day.
+const List<String> kQuotes = [
+  'Small steps every day.',
+  'Done is better than perfect.',
+  'Discipline is choosing what you want most over what you want now.',
+  'You don\'t have to be extreme, just consistent.',
+  'The secret of getting ahead is getting started.',
+  'Motivation gets you going; habit keeps you growing.',
+  'A year from now you\'ll wish you started today.',
+  'Focus on progress, not perfection.',
+  'What gets scheduled gets done.',
+  'Win the morning, win the day.',
+];
+
+String quoteOfTheDay([DateTime? now]) {
+  final d = now ?? DateTime.now();
+  final dayOfYear = d.difference(DateTime(d.year)).inDays;
+  return kQuotes[dayOfYear % kQuotes.length];
 }

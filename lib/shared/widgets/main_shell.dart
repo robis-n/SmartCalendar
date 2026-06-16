@@ -1,19 +1,22 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_provider.dart';
 import '../../services/supabase_service.dart';
 
 /// The persistent app shell: the body is the StatefulNavigationShell (three
 /// always-alive branch navigators) and a floating glass tab bar on top.
-class MainShell extends StatefulWidget {
+class MainShell extends ConsumerStatefulWidget {
   final StatefulNavigationShell navigationShell;
   const MainShell({super.key, required this.navigationShell});
   @override
-  State<MainShell> createState() => _MainShellState();
+  ConsumerState<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends ConsumerState<MainShell> {
   int _nudgeBadge = 0;
 
   @override
@@ -34,6 +37,7 @@ class _MainShellState extends State<MainShell> {
   ];
 
   void _onTab(int i) {
+    HapticFeedback.selectionClick();
     if (i == 2 && _nudgeBadge > 0) setState(() => _nudgeBadge = 0);
     // goBranch with initialLocation:true when re-tapping the active tab pops
     // that branch back to its root — the standard iOS tab-bar gesture.
@@ -45,6 +49,11 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Watch the theme providers so the (AppColors-based) nav bar recolours
+    // INSTANTLY when the accent/mode changes — this branch stays alive, so
+    // without watching it wouldn't rebuild on a colour switch.
+    ref.watch(accentColorProvider);
+    ref.watch(themeModeProvider);
     final index = widget.navigationShell.currentIndex;
 
     return Scaffold(

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/recurrence.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
+import '../../../shared/widgets/repeat_picker.dart';
 import '../../../shared/widgets/wheel_time_picker.dart';
 import '../../verification/screens/verification_screen.dart';
 
@@ -147,7 +149,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           taskTitle: _task?['title'] ?? '',
           taskDescription: _task?['description'] as String?),
     ));
-    if (r != null && mounted) _load();
+    if (r != null && mounted) { await _spawnRepeat(); _load(); }
   }
 
   Future<void> _fail() async {
@@ -162,7 +164,38 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     setState(() => _saving = true);
     await SupabaseService.updateTaskStatus(widget.taskId, 'verified');
     await NotificationService().cancelTaskNotifications(widget.taskId);
+    await _spawnRepeat();
     if (mounted) Navigator.of(context).pop('updated');
+  }
+
+  // If this task repeats, create + arm its next occurrence on completion.
+  Future<void> _spawnRepeat() async {
+    final t = _task;
+    if (t == null) return;
+    if (!Recurrence.repeats((t['recurrence'] as Map?)?.cast<String, dynamic>())) {
+      return;
+    }
+    final next = await SupabaseService.spawnNextOccurrence(t);
+    if (next == null) return;
+    final when = tsTryFromDb(next['scheduled_time'] as String?);
+    if (when != null) {
+      final notifyAt = (next['all_day'] == true)
+          ? DateTime(when.year, when.month, when.day, 9, 0)
+          : when;
+      await NotificationService().scheduleTaskNotifications(
+          taskId: next['id'], taskTitle: next['title'] ?? '',
+          deadline: notifyAt, priority: next['priority'] as String? ?? 'medium');
+    }
+  }
+
+  // Edit the repeat rule (owner only).
+  Future<void> _editRepeat() async {
+    final cur = (_task?['recurrence'] as Map?)?.cast<String, dynamic>();
+    final r = await showRepeatPicker(context, cur);
+    if (r == null) return;
+    final rule = r['preset'] == 'none' ? null : r;
+    await SupabaseService.updateTask(widget.taskId, {'recurrence': rule});
+    _load();
   }
 
   // ── Helpers ────────────────────────────────────────────
@@ -176,8 +209,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   String _fmtTime(DateTime d) {
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+    return TimeFmt.t(d);
   }
 
   // ── Build ──────────────────────────────────────────────
@@ -331,7 +363,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               _detailCard(
                 icon: Icons.access_time_rounded,
                 label: 'Scheduled',
-                value: sched != null ? '${_fmtDate(sched)}, ${_fmtTime(sched)}' : 'No date set',
+                value: sched == null
+                    ? 'Anytime'
+                    : (t['all_day'] == true
+                        ? '${_fmtDate(sched)} · All day'
+                        : '${_fmtDate(sched)}, ${_fmtTime(sched)}'),
                 onTap: owner ? _reschedule : null,
               ),
               const SizedBox(height: 10),
@@ -413,6 +449,37 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                   ),
                 ]),
               ),
+
+              // ── Repeat ────────────────────────────────
+              // Shown for tasks with a date; tappable to edit (owner only).
+              if (sched != null) ...[
+                const SizedBox(height: 10),
+                GestureDetector(
+                  onTap: owner ? _editRepeat : null,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.card,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: cardShadow,
+                    ),
+                    padding: const EdgeInsets.all(18),
+                    child: Row(children: [
+                      Icon(Icons.repeat_rounded, size: 22, color: AppColors.label),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          Recurrence.label(
+                                  (t['recurrence'] as Map?)?.cast<String, dynamic>()) ??
+                              'Does not repeat',
+                          style: TextStyle(fontSize: 15, color: AppColors.label2),
+                        ),
+                      ),
+                      if (owner)
+                        Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
+                    ]),
+                  ),
+                ),
+              ],
 
               // ── Created at ────────────────────────────
               if (t['created_at'] != null) ...[

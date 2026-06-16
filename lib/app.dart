@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
+import 'core/utils/time_utils.dart';
 import 'core/router/app_router.dart';
 
 class AccountabilityApp extends ConsumerWidget {
@@ -13,6 +14,7 @@ class AccountabilityApp extends ConsumerWidget {
     final themeMode = ref.watch(themeModeProvider);
     final textScale = ref.watch(textScaleProvider);
     final accentIdx = ref.watch(accentColorProvider);
+    final use24h    = ref.watch(timeFormatProvider);
 
     return MaterialApp.router(
       title: 'SmartCalendar',
@@ -32,6 +34,7 @@ class AccountabilityApp extends ConsumerWidget {
       builder: (context, child) {
         AppColors.dark = Theme.of(context).brightness == Brightness.dark;
         AppColors.palette = accentPaletteForIndex(accentIdx);
+        TimeFmt.use24h = use24h;
         // Apply the user's text-size choice globally, ignoring any extreme OS
         // setting so the layout stays in proportion.
         return MediaQuery.withClampedTextScaling(

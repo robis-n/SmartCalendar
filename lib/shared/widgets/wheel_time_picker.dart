@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/time_utils.dart';
 
 /// A clean Cupertino wheel time picker in a bottom sheet — the same control
 /// used when creating a task. Replaces Material's `showTimePicker` clock dial,
@@ -68,7 +69,7 @@ Future<TimeOfDay?> showWheelTimePicker(
             child: CupertinoDatePicker(
               mode: CupertinoDatePickerMode.time,
               initialDateTime: temp,
-              use24hFormat: false,
+              use24hFormat: TimeFmt.use24h,
               onDateTimeChanged: (dt) => temp = dt,
             ),
           ),

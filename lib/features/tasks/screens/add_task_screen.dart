@@ -1,11 +1,20 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/recurrence.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
+import '../../../shared/widgets/repeat_picker.dart';
+
+/// How the reminder is anchored in time.
+///   scheduled — a specific date AND time (fires a timed reminder)
+///   today     — a specific day, no clock time ("do it that day"); day editable
+///   global    — no date at all; lives in the Anytime list
+enum _TaskKind { scheduled, today, global }
 
 class AddTaskScreen extends StatefulWidget {
   final DateTime? initialDate;
@@ -18,12 +27,13 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   final _title = TextEditingController();
   final _desc  = TextEditingController();
   late DateTime _deadline;
+  _TaskKind _kind = _TaskKind.scheduled;
   String _priority    = 'medium';
   bool   _saving      = false;
-  bool   _noDeadline  = false; // true → timeless bucket-list reminder
   bool   _requireProof = true; // photo proof to complete (off = simple tick)
   bool   _syncCal     = false;
   String? _syncCalId;
+  Map<String, dynamic>? _recurrence; // null = never repeats
   List<WritableCalendar> _writableCals = [];
 
   List<Map<String, dynamic>> _friends = [];
@@ -37,6 +47,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     _deadline = d != null
         ? DateTime(d.year, d.month, d.day, 9, 0)
         : DateTime.now().add(const Duration(hours: 1));
+    // Opened from a specific day → default to a day-anchored task on that day.
+    if (d != null) _kind = _TaskKind.today;
     _loadFriends();
     _loadCalendars();
   }
@@ -112,7 +124,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
               child: CupertinoDatePicker(
                 mode: CupertinoDatePickerMode.time,
                 initialDateTime: _deadline,
-                use24hFormat: false,
+                use24hFormat: TimeFmt.use24h,
                 onDateTimeChanged: (dt) => temp = dt,
               ),
             ),
@@ -247,26 +259,42 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     setState(() => _saving = true);
     try {
       final uid = Supabase.instance.client.auth.currentUser?.id;
+      final isGlobal = _kind == _TaskKind.global;
+      final isToday  = _kind == _TaskKind.today;
+      // scheduled → exact datetime; today → that day at 00:00 (all-day);
+      // global → no time at all.
+      final DateTime? sched = isGlobal
+          ? null
+          : (isToday
+              ? DateTime(_deadline.year, _deadline.month, _deadline.day)
+              : _deadline);
+
       final created = await SupabaseService.createTask({
         'user_id':        uid,
         'title':          _title.text.trim(),
         'description':    _desc.text.trim(),
-        if (!_noDeadline) 'scheduled_time': tsToDb(_deadline),
+        if (sched != null) 'scheduled_time': tsToDb(sched),
+        'all_day':        isToday,
         'status':         'pending',
         'ai_generated':   false,
         'priority':       _priority,
         'verification_required': _requireProof,
+        if (_recurrence != null) 'recurrence': _recurrence,
       });
       if (_collab.isNotEmpty) {
         await SupabaseService.addCollaborators(created['id'], _collab.toList());
       }
-      if (!_noDeadline) {
+      // Arm a reminder. A day-anchored task nudges at 9 AM that day.
+      if (!isGlobal) {
+        final notifyAt = isToday
+            ? DateTime(_deadline.year, _deadline.month, _deadline.day, 9, 0)
+            : _deadline;
         await NotificationService().scheduleTaskNotifications(
-            taskId: created['id'], taskTitle: _title.text.trim(), deadline: _deadline,
-            priority: _priority);
+            taskId: created['id'], taskTitle: _title.text.trim(),
+            deadline: notifyAt, priority: _priority);
       }
-      // Optionally mirror the reminder into Apple/Google Calendar.
-      if (_syncCal && _syncCalId != null) {
+      // Mirror into Apple/Google Calendar (timed tasks only).
+      if (_kind == _TaskKind.scheduled && _syncCal && _syncCalId != null) {
         await DeviceCalendarService.createEvent(
           calendarId: _syncCalId!,
           title: _title.text.trim(),
@@ -290,11 +318,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     return '${now.day} ${m[now.month - 1]} ${now.year}';
   }
 
-  String get _timeLabel {
-    final h = _deadline.hour;
-    final m = _deadline.minute.toString().padLeft(2, '0');
-    return '${h % 12 == 0 ? 12 : h % 12}:$m ${h >= 12 ? 'PM' : 'AM'}';
-  }
+  String get _timeLabel => TimeFmt.t(_deadline);
 
   @override
   Widget build(BuildContext context) {
@@ -383,49 +407,11 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Schedule
+          // Schedule — how the task is anchored in time.
           _sectionLabel('SCHEDULE'),
           const SizedBox(height: 10),
-          // No-deadline toggle: turns this into a timeless bucket-list item.
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() { _noDeadline = !_noDeadline; _syncCal = false; }),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: _noDeadline ? AppColors.label : AppColors.card,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: _noDeadline ? AppColors.label : AppColors.separator,
-                  width: 1,
-                ),
-              ),
-              child: Row(children: [
-                Icon(Icons.all_inclusive_rounded, size: 18,
-                    color: _noDeadline ? AppColors.bg : AppColors.label2),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('No deadline',
-                        style: TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w600,
-                            color: _noDeadline ? AppColors.bg : AppColors.label)),
-                    Text('Added to your Anytime list',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: _noDeadline
-                                ? AppColors.bg.withValues(alpha: 0.6)
-                                : AppColors.label3)),
-                  ]),
-                ),
-                Icon(_noDeadline ? Icons.check_rounded : Icons.chevron_right_rounded,
-                    size: 18,
-                    color: _noDeadline ? AppColors.bg : AppColors.label3),
-              ]),
-            ),
-          ),
-          if (!_noDeadline) ...[
+          _kindSelector(),
+          if (_kind == _TaskKind.scheduled) ...[
             const SizedBox(height: 10),
             Row(children: [
               Expanded(child: _chipButton(
@@ -438,6 +424,27 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                 label: _timeLabel, onTap: _pickTime,
               )),
             ]),
+          ] else if (_kind == _TaskKind.today) ...[
+            const SizedBox(height: 10),
+            _chipButton(
+              icon: Icons.calendar_today_outlined,
+              label: _dateLabel, onTap: _pickDate,
+            ),
+          ],
+          // Repeat (not for global/anytime tasks — nothing to advance).
+          if (_kind != _TaskKind.global) ...[
+            const SizedBox(height: 10),
+            _chipButton(
+              icon: Icons.repeat_rounded,
+              label: Recurrence.label(_recurrence) ?? 'Does not repeat',
+              onTap: () async {
+                final r = await showRepeatPicker(context, _recurrence);
+                if (r != null) {
+                  setState(() => _recurrence =
+                      (r['preset'] == 'none') ? null : r);
+                }
+              },
+            ),
           ],
           const SizedBox(height: 24),
 
@@ -533,8 +540,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Calendar sync (only shown when there's a deadline and writable cals exist)
-          if (!_noDeadline && _writableCals.isNotEmpty) ...[
+          // Calendar sync (timed tasks only, when writable calendars exist)
+          if (_kind == _TaskKind.scheduled && _writableCals.isNotEmpty) ...[
             _sectionLabel('CALENDAR'),
             const SizedBox(height: 10),
             Container(
@@ -638,6 +645,51 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   Widget _sectionLabel(String t) => Text(t,
       style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800,
           color: AppColors.label3, letterSpacing: 1.5));
+
+  // Scheduled / Today / Anytime segmented selector.
+  Widget _kindSelector() {
+    const items = [
+      (_TaskKind.scheduled, Icons.schedule_rounded, 'Scheduled'),
+      (_TaskKind.today,     Icons.today_rounded,     'A day'),
+      (_TaskKind.global,    Icons.all_inclusive_rounded, 'Anytime'),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.separator, width: 1),
+      ),
+      child: Row(children: items.map((it) {
+        final sel = _kind == it.$1;
+        return Expanded(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() { _kind = it.$1; if (it.$1 != _TaskKind.scheduled) _syncCal = false; });
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              decoration: BoxDecoration(
+                color: sel ? AppColors.label : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(children: [
+                Icon(it.$2, size: 19, color: sel ? AppColors.bg : AppColors.label3),
+                const SizedBox(height: 4),
+                Text(it.$3,
+                    style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w700,
+                        color: sel ? AppColors.bg : AppColors.label3)),
+              ]),
+            ),
+          ),
+        );
+      }).toList()),
+    );
+  }
 
   Widget _chipButton({required IconData icon, required String label, required VoidCallback onTap}) =>
       GestureDetector(

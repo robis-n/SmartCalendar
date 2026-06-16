@@ -5,10 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_provider.dart';
+import '../../../core/utils/recurrence.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/supabase_service.dart';
+import '../../../shared/widgets/swipe_actions.dart';
+import '../../../shared/widgets/wheel_time_picker.dart';
 import '../../tasks/screens/add_task_screen.dart';
 import '../../tasks/screens/task_detail_screen.dart';
 import '../../verification/screens/verification_screen.dart';
@@ -49,16 +52,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   }
 
   // ── Live clock ─────────────────────────────────────────
-  String _clockTime = '';
+  // Computed each build so it always reflects the current 12h/24h preference
+  // (the hero rebuilds on the 30s tick and whenever the format flips).
+  String get _clockTime => TimeFmt.t(DateTime.now());
   Timer? _clockTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _refreshClock();
     _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(_refreshClock);
+      if (mounted) setState(() {});
     });
     // Seed from cache for an instant paint, then refresh silently — but only
     // if the cache belongs to the account that's signed in now (switching
@@ -91,12 +95,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     if (state == AppLifecycleState.resumed) _load();
   }
 
-  void _refreshClock() {
-    final n = DateTime.now();
-    final h = n.hour % 12 == 0 ? 12 : n.hour % 12;
-    final m = n.minute.toString().padLeft(2, '0');
-    _clockTime = '$h:$m ${n.hour >= 12 ? 'PM' : 'AM'}';
-  }
 
   // ── Data ───────────────────────────────────────────────
 
@@ -164,6 +162,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   }
 
   Future<void> _openDetail(Map<String, dynamic> task) async {
+    HapticFeedback.selectionClick();
     final r = await Navigator.of(context, rootNavigator: true)
         .push(MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: task['id'])));
     if (r != null && mounted) _load();
@@ -260,12 +259,154 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     if (mounted) _load();
   }
 
+  // When a repeating task is completed, spawn its next occurrence and arm its
+  // reminder so it actually recurs.
+  Future<void> _repeatIfNeeded(Map<String, dynamic> task) async {
+    if (!Recurrence.repeats((task['recurrence'] as Map?)?.cast<String, dynamic>())) {
+      return;
+    }
+    final next = await SupabaseService.spawnNextOccurrence(task);
+    if (next == null) return;
+    final when = tsTryFromDb(next['scheduled_time'] as String?);
+    if (when != null) {
+      final notifyAt = (next['all_day'] == true)
+          ? DateTime(when.year, when.month, when.day, 9, 0)
+          : when;
+      await NotificationService().scheduleTaskNotifications(
+          taskId: next['id'], taskTitle: next['title'] ?? '',
+          deadline: notifyAt, priority: next['priority'] as String? ?? 'medium');
+    }
+  }
+
+  // ── Swipe actions ──────────────────────────────────────
+  Future<void> _redo(Map<String, dynamic> task) async {
+    HapticFeedback.lightImpact();
+    await SupabaseService.updateTask(task['id'],
+        {'status': 'pending', 'completed_at': null});
+    final sched = tsTryFromDb(task['scheduled_time'] as String?);
+    if (sched != null) {
+      await NotificationService().scheduleTaskNotifications(
+          taskId: task['id'], taskTitle: task['title'] ?? '',
+          deadline: sched, priority: task['priority'] as String? ?? 'medium');
+    }
+    if (mounted) _load();
+  }
+
+  Future<void> _archive(Map<String, dynamic> task) async {
+    HapticFeedback.lightImpact();
+    await SupabaseService.archiveTask(task['id']);
+    await NotificationService().cancelTaskNotifications(task['id']);
+    if (mounted) _load();
+  }
+
+  Future<void> _snooze(Map<String, dynamic> task) async {
+    HapticFeedback.selectionClick();
+    final base = tsTryFromDb(task['scheduled_time'] as String?) ?? DateTime.now();
+    final choice = await showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: AppColors.card,
+      useRootNavigator: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 12),
+          Container(width: 40, height: 5,
+              decoration: BoxDecoration(color: AppColors.separator,
+                  borderRadius: BorderRadius.circular(3))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
+            child: Align(alignment: Alignment.centerLeft,
+              child: Text('Snooze to…',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700,
+                      color: AppColors.label))),
+          ),
+          for (final (label, dt) in [
+            ('Tomorrow, same time', base.add(const Duration(days: 1))),
+            ('This evening (6 PM)', DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day, 18, 0)),
+            ('Next week', base.add(const Duration(days: 7))),
+          ])
+            ListTile(
+              title: Text(label, style: TextStyle(color: AppColors.label)),
+              onTap: () => Navigator.pop(ctx, dt),
+            ),
+          ListTile(
+            leading: Icon(Icons.schedule_rounded, color: AppColors.label),
+            title: Text('Pick a time…', style: TextStyle(color: AppColors.label)),
+            onTap: () async {
+              final d = await showDatePicker(
+                context: ctx, initialDate: base,
+                firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                lastDate: DateTime(DateTime.now().year + 5));
+              if (d == null || !ctx.mounted) return;
+              final t = await showWheelTimePicker(ctx,
+                  initial: TimeOfDay.fromDateTime(base));
+              if (!ctx.mounted) return;
+              final picked = DateTime(d.year, d.month, d.day,
+                  t?.hour ?? base.hour, t?.minute ?? base.minute);
+              Navigator.pop(ctx, picked);
+            },
+          ),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (choice == null) return;
+    await SupabaseService.updateTask(task['id'], {
+      'scheduled_time': tsToDb(choice),
+      'status': 'pending',
+      'completed_at': null,
+    });
+    await NotificationService().scheduleTaskNotifications(
+        taskId: task['id'], taskTitle: task['title'] ?? '',
+        deadline: choice, priority: task['priority'] as String? ?? 'medium');
+    if (mounted) _load();
+  }
+
+  Future<void> _clearCompleted() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.card,
+        title: Text('Clear completed?',
+            style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.label)),
+        content: Text('Permanently removes all completed tasks. This cannot be undone.',
+            style: TextStyle(color: AppColors.label2)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancel', style: TextStyle(color: AppColors.label3))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true),
+              child: Text('Clear',
+                  style: TextStyle(color: AppColors.label, fontWeight: FontWeight.w700))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final n = await SupabaseService.clearCompletedTasks();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(n == 0 ? 'Nothing to clear' : 'Cleared $n completed')));
+      _load();
+    }
+  }
+
+  // Build the swipe actions for a task row (redo / snooze / archive).
+  List<SwipeAction> _swipeFor(Map<String, dynamic> task) => [
+    SwipeAction(icon: Icons.restart_alt_rounded, label: 'Redo',
+        onTap: () => _redo(task)),
+    SwipeAction(icon: Icons.schedule_rounded, label: 'Snooze',
+        onTap: () => _snooze(task)),
+    SwipeAction(icon: Icons.archive_outlined, label: 'Archive',
+        onTap: () => _archive(task)),
+  ];
+
   Future<void> _openVerification(Map<String, dynamic> task) async {
     // Tasks that don't require photo proof complete with a single tick — free
     // for everyone, no camera, no Pro gate (e.g. a shared family dinner).
     if (task['verification_required'] == false) {
       await SupabaseService.updateTaskStatus(task['id'], 'verified');
       await NotificationService().cancelTaskNotifications(task['id']);
+      await _repeatIfNeeded(task);
       if (mounted) _load();
       return;
     }
@@ -283,7 +424,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           taskTitle: task['title'],
           taskDescription: task['description'] as String?),
     ));
-    if (r != null && mounted) _load();
+    if (r != null && mounted) { await _repeatIfNeeded(task); _load(); }
   }
 
   // ── Copy ───────────────────────────────────────────────
@@ -313,9 +454,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     // Feature visibility — the user can hide optional Home surfaces (Settings →
     // Features). Watched so toggling reflects immediately on this live branch.
     final flags = ref.watch(featureFlagsProvider);
+    ref.watch(timeFormatProvider); // rebuild the clock when 12h/24h flips
     final showWeekStrip  = flags[Feature.weekStrip]  ?? true;
     final showAnytime    = flags[Feature.anytime]    ?? true;
     final showWeekAgenda = flags[Feature.weekAgenda] ?? true;
+    final showUndone     = flags[Feature.undone]     ?? true;
+    final showQuote      = flags[Feature.quotes]     ?? false;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -326,8 +470,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             // Left mirror of + : unfinished tasks. Hidden when nothing is
-            // overdue so the home stays calm. Badge shows the count.
-            if (_undone.isNotEmpty)
+            // overdue (or the feature is off) so the home stays calm.
+            if (showUndone && _undone.isNotEmpty)
               _InkFAB(
                 icon: Icons.history_rounded,
                 filled: false,
@@ -381,6 +525,32 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                     ),
                   ),
 
+                  // ── Daily quote (opt-in) ────────────────────────
+                  if (showQuote)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+                        child: Row(children: [
+                          Container(
+                            width: 3, height: 30,
+                            margin: const EdgeInsets.only(right: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.accent,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(quoteOfTheDay(),
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    fontStyle: FontStyle.italic,
+                                    height: 1.35,
+                                    color: AppColors.label2)),
+                          ),
+                        ]),
+                      ),
+                    ),
+
                   // ── Three big numbers: TOTAL / LEFT / DONE ──────
                   SliverToBoxAdapter(
                     child: Padding(
@@ -413,16 +583,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                     )
                   else ...[
                     if (_tasks.isNotEmpty) ...[
-                      SliverToBoxAdapter(child: _sectionRule('TODAY')),
+                      SliverToBoxAdapter(
+                        child: _sectionRule('TODAY',
+                            // "Clear done" appears once something's completed.
+                            action: done > 0 ? 'Clear done' : null,
+                            onAction: _clearCompleted),
+                      ),
                       SliverPadding(
                         padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
                         sliver: SliverList(
                           delegate: SliverChildBuilderDelegate(
-                            (ctx, i) => _TaskRow(
-                              task: _tasks[i],
-                              index: i,
-                              onTap:   () => _openDetail(_tasks[i]),
-                              onCheck: () => _openVerification(_tasks[i]),
+                            (ctx, i) => SwipeActions(
+                              actions: _swipeFor(_tasks[i]),
+                              child: _TaskRow(
+                                task: _tasks[i],
+                                index: i,
+                                onTap:   () => _openDetail(_tasks[i]),
+                                onCheck: () => _openVerification(_tasks[i]),
+                              ),
                             ),
                             childCount: _tasks.length,
                           ),
@@ -507,7 +685,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
 
   Widget _statDivider() => Container(width: 0.5, height: 54, color: AppColors.separator);
 
-  Widget _sectionRule(String label) => Padding(
+  Widget _sectionRule(String label, {String? action, VoidCallback? onAction}) => Padding(
     padding: const EdgeInsets.fromLTRB(24, 28, 24, 4),
     child: Row(children: [
       Text(label,
@@ -517,6 +695,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
         )),
       const SizedBox(width: 12),
       Expanded(child: Container(height: 0.5, color: AppColors.separator)),
+      if (action != null && onAction != null) ...[
+        const SizedBox(width: 12),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onAction,
+          child: Text(action,
+              style: TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w800,
+                color: AppColors.accent, letterSpacing: 0.5,
+              )),
+        ),
+      ],
     ]),
   );
 
@@ -597,8 +787,7 @@ class _SharedRow extends StatelessWidget {
   }
 
   String _fmt(DateTime d) {
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+    return TimeFmt.t(d);
   }
 }
 
@@ -641,10 +830,11 @@ class _TaskRow extends StatelessWidget {
     final status   = task['status'] as String? ?? 'pending';
     final isDone   = status == 'verified';
     final isFailed = status == 'failed';
+    final allDay   = task['all_day'] == true;
     final when     = task['scheduled_time'] != null
         ? (overdue
             ? _fmtDate(tsFromDb(task['scheduled_time']))
-            : _fmtTime(tsFromDb(task['scheduled_time'])))
+            : (allDay ? 'All day' : _fmtTime(tsFromDb(task['scheduled_time']))))
         : null;
 
     return GestureDetector(
@@ -716,8 +906,7 @@ class _TaskRow extends StatelessWidget {
   }
 
   String _fmtTime(DateTime d) {
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+    return TimeFmt.t(d);
   }
 
   String _fmtDate(DateTime d) {
@@ -961,7 +1150,7 @@ class _InkFAB extends StatelessWidget {
     );
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: () { HapticFeedback.lightImpact(); onTap(); },
       behavior: HitTestBehavior.opaque,
       child: badge > 0
           ? Stack(clipBehavior: Clip.none, children: [
@@ -1001,9 +1190,7 @@ class _UndoneSheet extends StatelessWidget {
   String _fmt(DateTime d) {
     const wd = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    final t = '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
-    return '${wd[d.weekday - 1]}, ${mo[d.month - 1]} ${d.day} · $t';
+    return '${wd[d.weekday - 1]}, ${mo[d.month - 1]} ${d.day} · ${TimeFmt.t(d)}';
   }
 
   @override
@@ -1144,8 +1331,7 @@ class _WeekDayGroup extends StatelessWidget {
   }
 
   String _time(DateTime d) {
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+    return TimeFmt.t(d);
   }
 
   @override
@@ -1253,8 +1439,7 @@ class _DayZoomCardState extends State<_DayZoomCard> {
   }
 
   String _time(DateTime d) {
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+    return TimeFmt.t(d);
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
 
 /// Full-screen "Add to calendar" / new Event editor.
@@ -62,10 +63,7 @@ class _CalendarEventScreenState extends State<CalendarEventScreen> {
     });
   }
 
-  String _fmtTime(DateTime d) {
-    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
-  }
+  String _fmtTime(DateTime d) => TimeFmt.t(d);
 
   Future<void> _pickTime(bool isStart) async {
     DateTime temp = isStart ? _start : _end;
@@ -110,7 +108,7 @@ class _CalendarEventScreenState extends State<CalendarEventScreen> {
               child: CupertinoDatePicker(
                 mode: CupertinoDatePickerMode.time,
                 initialDateTime: temp,
-                use24hFormat: false,
+                use24hFormat: TimeFmt.use24h,
                 onDateTimeChanged: (dt) => temp = dt,
               ),
             ),
