@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -46,7 +46,7 @@ jobs:
     needs: analyze
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: subosito/flutter-action@v2
         with:
@@ -67,7 +67,7 @@ jobs:
       - run: flutter build web --release
 
       - name: Upload web build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: SmartCalendar-Web
           path: build/web/
