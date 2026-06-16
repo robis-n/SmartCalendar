@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageRoute;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
@@ -141,7 +142,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     }
     NotificationService.onVerificationRequired = (id, title) {
       if (mounted) {
-        Navigator.of(context).push(MaterialPageRoute(
+        Navigator.of(context).push(CupertinoPageRoute(
           builder: (_) => VerificationScreen(taskId: id, taskTitle: title),
         ));
       }
@@ -172,14 +173,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   // any sub-dialogs (e.g. time picker) sit cleanly on a sterile background.
   Future<void> _openAddTask() async {
     final r = await Navigator.of(context, rootNavigator: true)
-        .push(MaterialPageRoute(builder: (_) => const AddTaskScreen()));
+        .push(CupertinoPageRoute(builder: (_) => const AddTaskScreen()));
     if (r == true && mounted) _load();
   }
 
   Future<void> _openDetail(Map<String, dynamic> task) async {
     HapticFeedback.selectionClick();
     final r = await Navigator.of(context, rootNavigator: true)
-        .push(MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: task['id'])));
+        .push(CupertinoPageRoute(builder: (_) => TaskDetailScreen(taskId: task['id'])));
     if (r != null && mounted) _load();
   }
 
@@ -189,7 +190,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     final id = task['id'] as String?;
     if (id == null) return;
     await Navigator.of(context, rootNavigator: true)
-        .push(MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: id)));
+        .push(CupertinoPageRoute(builder: (_) => TaskDetailScreen(taskId: id)));
     if (mounted) _load();
   }
 
@@ -204,7 +205,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
         tasks: _undone,
         onOpen: (t) async {
           final r = await Navigator.of(context, rootNavigator: true).push(
-              MaterialPageRoute(
+              CupertinoPageRoute(
                   builder: (_) => TaskDetailScreen(taskId: t['id'])));
           if (r != null && mounted) {
             Navigator.of(context, rootNavigator: true).pop(); // close sheet
@@ -256,13 +257,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
               initialTasks: _tasksOn(day),
               onOpenTask: (t) async {
                 final r = await Navigator.of(ctx, rootNavigator: true).push(
-                    MaterialPageRoute(
+                    CupertinoPageRoute(
                         builder: (_) => TaskDetailScreen(taskId: t['id'])));
                 if (r != null) { if (mounted) _load(); }
               },
               onAdd: () async {
                 final r = await Navigator.of(ctx, rootNavigator: true).push(
-                    MaterialPageRoute(
+                    CupertinoPageRoute(
                         builder: (_) => AddTaskScreen(initialDate: day)));
                 return r == true;
               },
@@ -433,7 +434,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
       );
       return;
     }
-    final r = await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+    final r = await Navigator.of(context, rootNavigator: true).push(CupertinoPageRoute(
       builder: (_) => VerificationScreen(
           taskId: task['id'],
           taskTitle: task['title'],

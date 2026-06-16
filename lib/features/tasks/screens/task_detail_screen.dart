@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageRoute;
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/recurrence.dart';
 import '../../../core/utils/time_utils.dart';
@@ -44,7 +45,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   Future<void> _openEdit() async {
     if (_task == null) return;
     final r = await Navigator.of(context, rootNavigator: true).push(
-        MaterialPageRoute(
+        CupertinoPageRoute(
             builder: (_) => AddTaskScreen(existingTask: _task)));
     if (r == true) _load();
   }
@@ -117,7 +118,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   Future<void> _verify() async {
-    final r = await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
+    final r = await Navigator.of(context, rootNavigator: true).push(CupertinoPageRoute(
       builder: (_) => VerificationScreen(
           taskId: widget.taskId,
           taskTitle: _task?['title'] ?? '',

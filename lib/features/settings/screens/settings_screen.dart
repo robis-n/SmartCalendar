@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageRoute;
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -58,7 +59,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
   void _push(Widget screen) =>
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+      Navigator.of(context).push(CupertinoPageRoute(builder: (_) => screen));
 
   @override
   Widget build(BuildContext context) {
@@ -457,7 +458,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _addAccount() async {
     final ok = await Navigator.of(context, rootNavigator: true).push<bool>(
-      MaterialPageRoute(builder: (_) => const LoginScreen(addAccount: true)),
+      CupertinoPageRoute(builder: (_) => const LoginScreen(addAccount: true)),
     );
     if (ok == true && mounted) {
       _snack('Account added');

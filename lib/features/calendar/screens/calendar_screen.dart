@@ -1,4 +1,5 @@
 import 'dart:math' show max;
+import 'package:flutter/cupertino.dart' show CupertinoPageRoute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_theme.dart';
@@ -1401,14 +1402,14 @@ class _DaySheetState extends State<_DaySheet> {
 
   Future<void> _openTask(Map<String, dynamic> task) async {
     final r = await Navigator.of(context, rootNavigator: true)
-        .push(MaterialPageRoute(
+        .push(CupertinoPageRoute(
             builder: (_) => TaskDetailScreen(taskId: task['id'] as String)));
     if (r != null) { widget.onChanged(); await _load(); }
   }
 
   Future<void> _addTask() async {
     final r = await Navigator.of(context, rootNavigator: true)
-        .push(MaterialPageRoute(
+        .push(CupertinoPageRoute(
             builder: (_) => AddTaskScreen(initialDate: widget.day)));
     if (r == true) { widget.onChanged(); await _load(); }
   }
@@ -1417,7 +1418,7 @@ class _DaySheetState extends State<_DaySheet> {
     // Full-screen editor (reliable back button + correct insets + clear
     // Apple/Google target selection). Returns created {cal,ev} links.
     final created = await Navigator.of(context, rootNavigator: true)
-        .push<List<dynamic>>(MaterialPageRoute(
+        .push<List<dynamic>>(CupertinoPageRoute(
             builder: (_) => CalendarEventScreen(day: widget.day)));
     if (!mounted) return;
     if (created != null && created.isNotEmpty) {
