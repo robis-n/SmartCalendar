@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/utils/time_utils.dart';
 import '../core/utils/recurrence.dart';
+import '../core/utils/app_events.dart';
 
 class SupabaseService {
   static SupabaseClient get client => Supabase.instance.client;
@@ -189,11 +190,13 @@ class SupabaseService {
 
   static Future<Map<String, dynamic>> createTask(Map<String, dynamic> task) async {
     final res = await client.from('tasks').insert(task).select().single();
+    bumpData();
     return res;
   }
 
   static Future<void> updateTask(String taskId, Map<String, dynamic> data) async {
     await client.from('tasks').update(data).eq('id', taskId);
+    bumpData();
   }
 
   static Future<void> updateTaskStatus(String taskId, String status) async {
@@ -202,12 +205,14 @@ class SupabaseService {
       if (status == 'verified' || status == 'failed')
         'completed_at': tsToDb(DateTime.now()),
     }).eq('id', taskId);
+    bumpData();
   }
 
   /// Hide a task without deleting it (swipe → Archive). Excluded from all the
   /// list queries above.
   static Future<void> archiveTask(String taskId) async {
     await client.from('tasks').update({'status': 'archived'}).eq('id', taskId);
+    bumpData();
   }
 
   /// Permanently remove every completed (verified) task for the current user —
@@ -224,6 +229,7 @@ class SupabaseService {
     await client.from('task_verifications').delete().inFilter('task_id', ids);
     await client.from('collaborations').delete().inFilter('task_id', ids);
     await client.from('tasks').delete().inFilter('id', ids);
+    bumpData();
     return ids.length;
   }
 
@@ -270,6 +276,7 @@ class SupabaseService {
     await client.from('task_verifications').delete().eq('task_id', taskId);
     await client.from('collaborations').delete().eq('task_id', taskId);
     await client.from('tasks').delete().eq('id', taskId);
+    bumpData();
   }
 
   // ── Analytics ──────────────────────────────────────────

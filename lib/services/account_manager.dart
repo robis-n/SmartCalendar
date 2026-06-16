@@ -1,5 +1,6 @@
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/utils/app_events.dart';
 
 /// Multi-account support: remembers every account that signs in on this
 /// device so the user can switch without retyping credentials.
@@ -51,6 +52,8 @@ class AccountManager {
       final res =
           await _client.auth.setSession(acc['refresh_token'] as String);
       if (res.session == null) throw const AuthException('No session');
+      // Force every alive screen to drop the previous account's data.
+      bumpData();
       return null;
     } catch (_) {
       await _box.delete(userId);

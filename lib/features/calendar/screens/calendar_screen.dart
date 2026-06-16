@@ -2,6 +2,7 @@ import 'dart:math' show max;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/app_events.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
 import '../../../services/supabase_service.dart';
@@ -47,10 +48,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
     // Warm the cache so the grid is populated the instant the tab appears,
     // and a few months out so scrolling forward isn't blank.
     _MonthCache.prefetch(_base, radius: 4);
+    // Task changed on another tab, or account switched → drop cached chips and
+    // rebuild the visible grids with fresh data.
+    dataRevision.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    _MonthCache.clearAll();
+    if (mounted) {
+      setState(() => _reloadToken++);
+      _MonthCache.prefetch(_base, radius: 4);
+    }
   }
 
   @override
   void dispose() {
+    dataRevision.removeListener(_onDataChanged);
     _monthCtrl.dispose();
     _weekCtrl.dispose();
     super.dispose();
@@ -634,6 +647,13 @@ class _MonthCache {
     _inflight.remove(_key(month));
   }
 
+  /// Drop everything — used on data change / account switch so the calendar
+  /// can never show stale or another account's chips.
+  static void clearAll() {
+    _data.clear();
+    _inflight.clear();
+  }
+
   /// Build (or reuse an in-flight build of) a month's chips. Always refreshes
   /// the cache with the latest result.
   static Future<Map<int, List<_CalChip>>> load(DateTime month) {
@@ -1077,7 +1097,7 @@ class _WeekTimelineState extends State<_WeekTimeline> {
     for (var i = 0; i < 7; i++) {
       if (_sameDay(widget.weekStart.add(Duration(days: i)), now)) {
         final mins = (now.hour - _startH) * 60.0 + now.minute;
-        if (mins < 0 || mins > (_endH - _startH) * 60) return null;
+        if (mins < 0 || mins > (_endH - _startH + 1) * 60) return null;
         return mins / 60 * _hourH;
       }
     }
@@ -1088,7 +1108,9 @@ class _WeekTimelineState extends State<_WeekTimeline> {
   Widget build(BuildContext context) {
     final w   = MediaQuery.of(context).size.width;
     final dayW = (w - _labelW) / 7;
-    final totalH = (_endH - _startH) * _hourH + 24;
+    // +1 hour of canvas so the final hour row (e.g. 11 PM → midnight) is fully
+    // visible, plus 12px top + 12px bottom padding.
+    final totalH = (_endH - _startH + 1) * _hourH + 24;
 
     return Column(children: [
       // ── Day column headers ─────────────────────────────
@@ -1199,15 +1221,17 @@ class _WeekTimelineState extends State<_WeekTimeline> {
                     // Hour gridlines — the hairline sits EXACTLY at the hour's
                     // y so event blocks (anchored to the same y) line up. The
                     // label is centred on the line, not pushing it down.
-                    ...List.generate(_endH - _startH + 1, (i) {
+                    // +2 → one line per hour PLUS a closing line at midnight,
+                    // so the last hour row is bounded top and bottom.
+                    ...List.generate(_endH - _startH + 2, (i) {
                       final y = i * _hourH + 12;
                       return Positioned(
                         top: y, left: _labelW, right: 0, height: 0.5,
                         child: Container(color: AppColors.separator),
                       );
                     }),
-                    ...List.generate(_endH - _startH + 1, (i) {
-                      final hour = _startH + i;
+                    ...List.generate(_endH - _startH + 2, (i) {
+                      final hour = (_startH + i) % 24; // 24 → 0 (midnight)
                       final y    = i * _hourH + 12;
                       return Positioned(
                         top: y - 6, left: 0, width: _labelW - 6,
@@ -1263,7 +1287,8 @@ class _WeekTimelineState extends State<_WeekTimeline> {
 
   Widget _eventBlock(_WeekEvent event, int day, double dayW) {
     final startFrac = event.start.hour + event.start.minute / 60.0;
-    final top    = (startFrac - _startH).clamp(0.0, _endH - _startH.toDouble()) * _hourH + 12;
+    // Allow positions right up to midnight (24.0), not just the 23:00 line.
+    final top    = (startFrac - _startH).clamp(0.0, (_endH - _startH + 1).toDouble()) * _hourH + 12;
     final left   = _labelW + day * dayW + 1.5;
     final isDone = event.status == 'verified';
     final ambient = (!event.isTask && event.color != null)

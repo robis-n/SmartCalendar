@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_provider.dart';
+import '../../../core/utils/app_events.dart';
 import '../../../core/utils/recurrence.dart';
 import '../../../core/utils/time_utils.dart';
 import '../../../services/device_calendar_service.dart';
@@ -77,6 +78,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     }
     _load();
     _loadQuote();
+    // Refresh when data changes on another tab or the account switches (this
+    // branch is kept alive by StatefulShellRoute, so it won't rebuild itself).
+    dataRevision.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() {
+    if (mounted) _load();
   }
 
   // Live quote, fetched once per day (cached) — never blocks the rest of
@@ -90,6 +98,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
 
   @override
   void dispose() {
+    dataRevision.removeListener(_onDataChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
