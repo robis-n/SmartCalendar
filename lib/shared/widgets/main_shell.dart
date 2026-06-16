@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/router/app_router.dart' show branchNavigatorKeys;
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../services/supabase_service.dart';
@@ -25,9 +26,14 @@ class _MainShellState extends ConsumerState<MainShell> {
     _loadNudgeBadge();
   }
 
+  // Badge = anything needing a response: unseen nudges + pending task invites.
+  // Combined so neither is easy to miss/forget about on the Profile tab.
   Future<void> _loadNudgeBadge() async {
-    final n = await SupabaseService.unseenNudgeCount();
-    if (mounted) setState(() => _nudgeBadge = n);
+    final results = await Future.wait([
+      SupabaseService.unseenNudgeCount(),
+      SupabaseService.pendingTaskInviteCount(),
+    ]);
+    if (mounted) setState(() => _nudgeBadge = results[0] + results[1]);
   }
 
   static const _icons = <_NavIcon>[
@@ -39,12 +45,16 @@ class _MainShellState extends ConsumerState<MainShell> {
   void _onTab(int i) {
     HapticFeedback.selectionClick();
     if (i == 2 && _nudgeBadge > 0) setState(() => _nudgeBadge = 0);
-    // goBranch with initialLocation:true when re-tapping the active tab pops
-    // that branch back to its root — the standard iOS tab-bar gesture.
-    widget.navigationShell.goBranch(
-      i,
-      initialLocation: i == widget.navigationShell.currentIndex,
-    );
+    final isActive = i == widget.navigationShell.currentIndex;
+    if (isActive) {
+      // Re-tapping the active tab: go_router's goBranch(initialLocation:true)
+      // only resets go_router's own location for the branch — it can't pop
+      // screens that were pushed onto the branch's Navigator imperatively
+      // (Navigator.push, used by Friends/Analytics/Subscriptions/etc.), since
+      // go_router never finds out about those. Pop that Navigator directly.
+      branchNavigatorKeys[i].currentState?.popUntil((r) => r.isFirst);
+    }
+    widget.navigationShell.goBranch(i, initialLocation: isActive);
   }
 
   @override

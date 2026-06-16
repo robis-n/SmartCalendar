@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/time_utils.dart';
 import '../../../services/supabase_service.dart';
 
 class FriendsScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   List<Map<String, dynamic>> _suggestions = [];
   List<Map<String, dynamic>> _nudges      = [];
   List<Map<String, dynamic>> _groups      = [];
+  List<Map<String, dynamic>> _invites     = []; // pending task-share invites
   bool _loading = true;
 
   String get _myId => Supabase.instance.client.auth.currentUser?.id ?? '';
@@ -30,6 +32,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
       SupabaseService.getFriendSuggestions(limit: 6),
       SupabaseService.getNudges(),
       SupabaseService.getFriendGroups(),
+      SupabaseService.getPendingTaskInvites(),
     ]);
     // Mark nudges seen after fetching so the badge on the shell can clear.
     await SupabaseService.markNudgesSeen();
@@ -40,9 +43,21 @@ class _FriendsScreenState extends State<FriendsScreen> {
         _suggestions = results[2];
         _nudges      = results[3];
         _groups      = results[4];
+        _invites     = results[5];
         _loading     = false;
       });
     }
+  }
+
+  Future<void> _acceptInvite(Map<String, dynamic> inv) async {
+    await SupabaseService.acceptTaskInvite(inv['id'] as String);
+    _snack('Added to your tasks');
+    _load();
+  }
+
+  Future<void> _declineInvite(Map<String, dynamic> inv) async {
+    await SupabaseService.declineTaskInvite(inv['id'] as String);
+    _load();
   }
 
   // ── Selectors ──────────────────────────────────────────
@@ -213,6 +228,19 @@ class _FriendsScreenState extends State<FriendsScreen> {
                         ),
                       ),
 
+                      // ── Task invites — needs YOUR consent before it joins
+                      // your list. Top of the screen: this is the whole point
+                      // of the fix — nothing from a friend lands in your tasks
+                      // without you saying yes first.
+                      if (_invites.isNotEmpty) ...[
+                        _sectionLabel('Task invites', badge: _invites.length),
+                        const SizedBox(height: 10),
+                        _card(children: _invites
+                            .mapIndexed((i, inv) => _inviteTile(inv, i, _invites.length))
+                            .toList()),
+                        const SizedBox(height: 22),
+                      ],
+
                       // ── Nudge inbox ──────────────────────────────────
                       if (_nudges.isNotEmpty) ...[
                         _sectionLabel('Nudges', badge: _nudges.where((n) => n['seen'] == false).length),
@@ -231,6 +259,20 @@ class _FriendsScreenState extends State<FriendsScreen> {
                             .toList()),
                         const SizedBox(height: 22),
                       ],
+
+                      // ── Challenges — actionable, time-sensitive: kept near
+                      // the top instead of buried below Friends/Groups.
+                      _sectionLabel('Challenges'),
+                      const SizedBox(height: 10),
+                      if (_challenges.isEmpty)
+                        _emptyCard('No active challenges')
+                      else
+                        Column(children: _challenges
+                            .map((c) => Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _challengeTile(c)))
+                            .toList()),
+                      const SizedBox(height: 22),
 
                       _sectionLabel('Friends'),
                       const SizedBox(height: 10),
@@ -267,18 +309,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
                       else
                         _card(children: _groups
                             .mapIndexed((i, g) => _groupTile(g, i, _groups.length))
-                            .toList()),
-                      const SizedBox(height: 22),
-
-                      _sectionLabel('Challenges'),
-                      const SizedBox(height: 10),
-                      if (_challenges.isEmpty)
-                        _emptyCard('No active challenges')
-                      else
-                        Column(children: _challenges
-                            .map((c) => Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: _challengeTile(c)))
                             .toList()),
                       const SizedBox(height: 22),
 
@@ -345,6 +375,48 @@ class _FriendsScreenState extends State<FriendsScreen> {
   );
 
   // ── Tiles ─────────────────────────────────────────────
+
+  Widget _inviteTile(Map<String, dynamic> inv, int i, int total) {
+    final task = (inv['_task'] as Map?) ?? const {};
+    final owner = inv['_owner'] as String? ?? 'a friend';
+    final title = task['title'] as String? ?? 'a task';
+    final sched = task['scheduled_time'] as String?;
+    final when = sched != null ? TimeFmt.t(tsFromDb(sched)) : 'Anytime';
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(children: [
+          Container(
+            width: 44, height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.mail_outline_rounded, size: 20, color: AppColors.accent),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
+                      color: AppColors.label)),
+              const SizedBox(height: 2),
+              Text('$owner wants to share this · $when',
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: AppColors.label3)),
+            ],
+          )),
+          const SizedBox(width: 8),
+          _pillButton(label: 'Decline', filled: false,
+              onTap: () => _declineInvite(inv)),
+          const SizedBox(width: 6),
+          _pillButton(label: 'Accept', filled: true,
+              onTap: () => _acceptInvite(inv)),
+        ]),
+      ),
+      if (i < total - 1) _hairline(),
+    ]);
+  }
 
   Widget _requestTile(Map<String, dynamic> f, int i, int total) {
     final u = _other(f);

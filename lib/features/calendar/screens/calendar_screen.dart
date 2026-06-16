@@ -985,7 +985,13 @@ class _WeekTimeline extends StatefulWidget {
 
 class _WeekTimelineState extends State<_WeekTimeline> {
   List<List<_WeekEvent>> _events = List.generate(7, (_) => []);
-  final _scrollCtrl = ScrollController();
+  // The scroll position is computed up front and given to the controller's
+  // constructor — NOT jumped to after first frame. A post-frame jumpTo() was
+  // visible: the view briefly painted at 0:00, then snapped to the current
+  // hour while _ZoomSwitcher was still fading/scaling it in, reading as a
+  // jarring "everything rolls up" double-motion. Setting initialScrollOffset
+  // means the very first frame already shows the right position — no jump.
+  late final ScrollController _scrollCtrl;
   int _lastHapticHour = -1;
 
   // Full 24-hour day (midnight to midnight), scrollable — nothing hidden.
@@ -1000,17 +1006,14 @@ class _WeekTimelineState extends State<_WeekTimeline> {
   void initState() {
     super.initState();
     _load();
+    // Open scrolled to roughly the current hour (with a little headroom above
+    // it for context) rather than always 8 AM — matches how Apple Calendar
+    // opens.
+    final nowHour = DateTime.now().hour;
+    final target = (nowHour - 1).clamp(_startH, _endH);
+    _scrollCtrl = ScrollController(
+        initialScrollOffset: (target - _startH) * _hourH);
     _scrollCtrl.addListener(_onScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollCtrl.hasClients) {
-        // Open scrolled to roughly the current hour (with a little headroom
-        // above it for context) rather than always 8 AM, now that the full
-        // day is in range — matches how Apple Calendar opens.
-        final nowHour = DateTime.now().hour;
-        final target = (nowHour - 1).clamp(_startH, _endH);
-        _scrollCtrl.jumpTo((target - _startH) * _hourH);
-      }
-    });
   }
 
   void _onScroll() {

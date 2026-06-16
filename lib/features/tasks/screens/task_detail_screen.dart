@@ -8,6 +8,7 @@ import '../../../services/supabase_service.dart';
 import '../../../shared/widgets/repeat_picker.dart';
 import '../../../shared/widgets/wheel_time_picker.dart';
 import '../../verification/screens/verification_screen.dart';
+import 'add_task_screen.dart';
 
 class TaskDetailScreen extends StatefulWidget {
   final String taskId;
@@ -37,42 +38,15 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   // ── Edits ──────────────────────────────────────────────
 
-  Future<void> _editTitle() async {
-    final ctrl = TextEditingController(text: _task?['title'] ?? '');
-    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Title'),
-      content: TextField(controller: ctrl, autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(border: InputBorder.none)),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true),
-          style: FilledButton.styleFrom(minimumSize: const Size(80, 44)),
-          child: const Text('Save')),
-      ],
-    ));
-    if (ok != true || ctrl.text.trim().isEmpty) return;
-    await SupabaseService.updateTask(widget.taskId, {'title': ctrl.text.trim()});
-    _load();
-  }
-
-  Future<void> _editDesc() async {
-    final ctrl = TextEditingController(text: _task?['description'] ?? '');
-    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Notes'),
-      content: TextField(controller: ctrl, autofocus: true, maxLines: 4,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(border: InputBorder.none)),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true),
-          style: FilledButton.styleFrom(minimumSize: const Size(80, 44)),
-          child: const Text('Save')),
-      ],
-    ));
-    if (ok != true) return;
-    await SupabaseService.updateTask(widget.taskId, {'description': ctrl.text.trim()});
-    _load();
+  // Edit opens the SAME screen used to create a task, prefilled — not a
+  // cramped one-field dialog. Covers title, notes, schedule, priority,
+  // proof requirement and repeat in one consistent place.
+  Future<void> _openEdit() async {
+    if (_task == null) return;
+    final r = await Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(
+            builder: (_) => AddTaskScreen(existingTask: _task)));
+    if (r == true) _load();
   }
 
   Future<void> _reschedule() async {
@@ -342,13 +316,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     const Spacer(),
                     if (owner)
                       GestureDetector(
-                        onTap: _editTitle,
+                        onTap: _openEdit,
                         child: Icon(Icons.edit_outlined, size: 20, color: AppColors.label3),
                       ),
                   ]),
                   const SizedBox(height: 14),
                   GestureDetector(
-                    onTap: owner ? _editTitle : null,
+                    onTap: owner ? _openEdit : null,
                     child: Text(t['title'] ?? '',
                       style: TextStyle(
                         fontSize: 26, fontWeight: FontWeight.w700,
@@ -608,7 +582,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     // affordance the collaborator can't act on.
     if (!owner && !hasNotes) return const SizedBox.shrink();
     return GestureDetector(
-      onTap: owner ? _editDesc : null,
+      onTap: owner ? _openEdit : null,
       child: Container(
         decoration: BoxDecoration(
           color: AppColors.card,

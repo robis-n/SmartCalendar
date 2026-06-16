@@ -599,7 +599,9 @@ class SupabaseService {
     return out;
   }
 
-  /// Share an existing task with friends (creates a collaboration row).
+  /// Share an existing task with friends — creates a collaboration row that's
+  /// PENDING until each invitee accepts. Never appears in their task list on
+  /// its own; see [getPendingTaskInvites] / [acceptTaskInvite].
   static Future<void> addCollaborators(String taskId, List<String> invitedIds) async {
     final me = client.auth.currentUser?.id;
     if (me == null || invitedIds.isEmpty) return;
@@ -607,19 +609,96 @@ class SupabaseService {
       'owner_id': me,
       'task_id': taskId,
       'invited_user_ids': invitedIds,
+      'accepted_user_ids': <String>[],
       'status': 'active',
     });
   }
 
-  /// Tasks other people have shared with me, scheduled on [date].
-  /// Each row gets a `_shared_by` email for display.
+  /// Task invites waiting on MY response — invited but not yet accepted.
+  /// Each row gets `_owner` (handle) + `_task` (title/time) for display.
+  static Future<List<Map<String, dynamic>>> getPendingTaskInvites() async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return [];
+    final collabs = List<Map<String, dynamic>>.from(
+      await client.from('collaborations')
+          .select('id, task_id, owner_id')
+          .contains('invited_user_ids', [me]),
+    );
+    // Filter to "invited but not accepted" client-side — Postgrest can't
+    // express "NOT in array" against a uuid[] column cleanly.
+    final pending = <Map<String, dynamic>>[];
+    for (final c in collabs) {
+      final accepted =
+          List<String>.from((c['accepted_user_ids'] as List?) ?? const []);
+      if (!accepted.contains(me)) pending.add(c);
+    }
+    if (pending.isEmpty) return [];
+
+    final taskIds = pending.map((c) => c['task_id']).whereType<String>().toList();
+    final ownerIds = pending.map((c) => c['owner_id']).whereType<String>().toSet().toList();
+    final tasks = taskIds.isEmpty
+        ? <Map<String, dynamic>>[]
+        : List<Map<String, dynamic>>.from(
+            await client.from('tasks').select('id, title, scheduled_time')
+                .inFilter('id', taskIds));
+    final taskById = {for (final t in tasks) t['id']: t};
+    final owners = ownerIds.isEmpty
+        ? <Map<String, dynamic>>[]
+        : List<Map<String, dynamic>>.from(
+            await client.from('users').select('id, email, username')
+                .inFilter('id', ownerIds));
+    final ownerById = {for (final o in owners) o['id']: o};
+
+    final out = <Map<String, dynamic>>[];
+    for (final c in pending) {
+      final task = taskById[c['task_id']];
+      if (task == null) continue; // task deleted — nothing to show
+      final owner = ownerById[c['owner_id']];
+      final handle = (owner?['username'] as String?)?.isNotEmpty == true
+          ? '@${owner!['username']}'
+          : (owner?['email'] as String? ?? 'a friend');
+      out.add({...c, '_task': task, '_owner': handle});
+    }
+    return out;
+  }
+
+  static Future<int> pendingTaskInviteCount() async =>
+      (await getPendingTaskInvites()).length;
+
+  /// Accept a task invite — only now does it join my active task list.
+  static Future<void> acceptTaskInvite(String collaborationId) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return;
+    final row = await client.from('collaborations')
+        .select('accepted_user_ids').eq('id', collaborationId).maybeSingle();
+    final accepted = List<String>.from((row?['accepted_user_ids'] as List?) ?? const []);
+    if (!accepted.contains(me)) accepted.add(me);
+    await client.from('collaborations')
+        .update({'accepted_user_ids': accepted}).eq('id', collaborationId);
+    bumpData();
+  }
+
+  /// Decline a task invite — removes me from it entirely; it never resurfaces.
+  static Future<void> declineTaskInvite(String collaborationId) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return;
+    final row = await client.from('collaborations')
+        .select('invited_user_ids').eq('id', collaborationId).maybeSingle();
+    final invited = List<String>.from((row?['invited_user_ids'] as List?) ?? const []);
+    invited.remove(me);
+    await client.from('collaborations')
+        .update({'invited_user_ids': invited}).eq('id', collaborationId);
+  }
+
+  /// Tasks other people have shared with me AND I've accepted, scheduled on
+  /// [date]. Each row gets a `_shared_by` email for display.
   static Future<List<Map<String, dynamic>>> getSharedTasksForDate(DateTime date) async {
     final me = client.auth.currentUser?.id;
     if (me == null) return [];
     final collabs = List<Map<String, dynamic>>.from(
       await client.from('collaborations')
           .select('task_id, owner_id')
-          .contains('invited_user_ids', [me]),
+          .contains('accepted_user_ids', [me]),
     );
     if (collabs.isEmpty) return [];
 

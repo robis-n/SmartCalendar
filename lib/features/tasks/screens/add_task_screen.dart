@@ -18,7 +18,11 @@ enum _TaskKind { scheduled, today, global }
 
 class AddTaskScreen extends StatefulWidget {
   final DateTime? initialDate;
-  const AddTaskScreen({super.key, this.initialDate});
+  /// When set, this screen edits the given task in place (prefilled, "Save"
+  /// updates instead of creating) instead of making a new one. The full-task
+  /// map as returned by the task-detail/list queries.
+  final Map<String, dynamic>? existingTask;
+  const AddTaskScreen({super.key, this.initialDate, this.existingTask});
   @override
   State<AddTaskScreen> createState() => _AddTaskScreenState();
 }
@@ -40,17 +44,41 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   List<Map<String, dynamic>> _groups  = []; // named friend groups (e.g. Family)
   final Set<String> _collab = {};
 
+  bool get _editing => widget.existingTask != null;
+
   @override
   void initState() {
     super.initState();
-    final d = widget.initialDate;
-    _deadline = d != null
-        ? DateTime(d.year, d.month, d.day, 9, 0)
-        : DateTime.now().add(const Duration(hours: 1));
-    // Opened from a specific day → default to a day-anchored task on that day.
-    if (d != null) _kind = _TaskKind.today;
-    _loadFriends();
-    _loadCalendars();
+    final existing = widget.existingTask;
+    if (existing != null) {
+      // Prefill every field from the task being edited.
+      _title.text = existing['title'] as String? ?? '';
+      _desc.text  = existing['description'] as String? ?? '';
+      final sched = tsTryFromDb(existing['scheduled_time'] as String?);
+      if (sched == null) {
+        _kind = _TaskKind.global;
+        _deadline = DateTime.now().add(const Duration(hours: 1));
+      } else if (existing['all_day'] == true) {
+        _kind = _TaskKind.today;
+        _deadline = sched;
+      } else {
+        _kind = _TaskKind.scheduled;
+        _deadline = sched;
+      }
+      _priority = existing['priority'] as String? ?? 'medium';
+      _requireProof = existing['verification_required'] != false;
+      final rec = existing['recurrence'];
+      _recurrence = rec is Map ? rec.cast<String, dynamic>() : null;
+    } else {
+      final d = widget.initialDate;
+      _deadline = d != null
+          ? DateTime(d.year, d.month, d.day, 9, 0)
+          : DateTime.now().add(const Duration(hours: 1));
+      // Opened from a specific day → default to a day-anchored task on that day.
+      if (d != null) _kind = _TaskKind.today;
+      _loadFriends();
+      _loadCalendars();
+    }
   }
 
   Future<void> _loadFriends() async {
@@ -258,7 +286,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     }
     setState(() => _saving = true);
     try {
-      final uid = Supabase.instance.client.auth.currentUser?.id;
       final isGlobal = _kind == _TaskKind.global;
       final isToday  = _kind == _TaskKind.today;
       // scheduled → exact datetime; today → that day at 00:00 (all-day);
@@ -268,40 +295,63 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           : (isToday
               ? DateTime(_deadline.year, _deadline.month, _deadline.day)
               : _deadline);
+      final notifyAt = isToday
+          ? DateTime(_deadline.year, _deadline.month, _deadline.day, 9, 0)
+          : _deadline;
 
-      final created = await SupabaseService.createTask({
-        'user_id':        uid,
-        'title':          _title.text.trim(),
-        'description':    _desc.text.trim(),
-        if (sched != null) 'scheduled_time': tsToDb(sched),
-        'all_day':        isToday,
-        'status':         'pending',
-        'ai_generated':   false,
-        'priority':       _priority,
-        'verification_required': _requireProof,
-        if (_recurrence != null) 'recurrence': _recurrence,
-      });
-      if (_collab.isNotEmpty) {
-        await SupabaseService.addCollaborators(created['id'], _collab.toList());
-      }
-      // Arm a reminder. A day-anchored task nudges at 9 AM that day.
-      if (!isGlobal) {
-        final notifyAt = isToday
-            ? DateTime(_deadline.year, _deadline.month, _deadline.day, 9, 0)
-            : _deadline;
-        await NotificationService().scheduleTaskNotifications(
-            taskId: created['id'], taskTitle: _title.text.trim(),
-            deadline: notifyAt, priority: _priority);
-      }
-      // Mirror into Apple/Google Calendar (timed tasks only).
-      if (_kind == _TaskKind.scheduled && _syncCal && _syncCalId != null) {
-        await DeviceCalendarService.createEvent(
-          calendarId: _syncCalId!,
-          title: _title.text.trim(),
-          start: _deadline,
-          end: _deadline.add(const Duration(hours: 1)),
-          description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
-        );
+      final String taskId;
+      if (_editing) {
+        taskId = widget.existingTask!['id'] as String;
+        await SupabaseService.updateTask(taskId, {
+          'title':          _title.text.trim(),
+          'description':    _desc.text.trim(),
+          'scheduled_time': sched != null ? tsToDb(sched) : null,
+          'all_day':        isToday,
+          'priority':       _priority,
+          'verification_required': _requireProof,
+          'recurrence':     _recurrence,
+        });
+        // Reschedule notifications from scratch — old ones may no longer
+        // match the (possibly changed) time/priority.
+        await NotificationService().cancelTaskNotifications(taskId);
+        if (!isGlobal) {
+          await NotificationService().scheduleTaskNotifications(
+              taskId: taskId, taskTitle: _title.text.trim(),
+              deadline: notifyAt, priority: _priority);
+        }
+      } else {
+        final uid = Supabase.instance.client.auth.currentUser?.id;
+        final created = await SupabaseService.createTask({
+          'user_id':        uid,
+          'title':          _title.text.trim(),
+          'description':    _desc.text.trim(),
+          if (sched != null) 'scheduled_time': tsToDb(sched),
+          'all_day':        isToday,
+          'status':         'pending',
+          'ai_generated':   false,
+          'priority':       _priority,
+          'verification_required': _requireProof,
+          if (_recurrence != null) 'recurrence': _recurrence,
+        });
+        taskId = created['id'] as String;
+        if (_collab.isNotEmpty) {
+          await SupabaseService.addCollaborators(taskId, _collab.toList());
+        }
+        if (!isGlobal) {
+          await NotificationService().scheduleTaskNotifications(
+              taskId: taskId, taskTitle: _title.text.trim(),
+              deadline: notifyAt, priority: _priority);
+        }
+        // Mirror into Apple/Google Calendar (timed tasks only, new tasks only).
+        if (_kind == _TaskKind.scheduled && _syncCal && _syncCalId != null) {
+          await DeviceCalendarService.createEvent(
+            calendarId: _syncCalId!,
+            title: _title.text.trim(),
+            start: _deadline,
+            end: _deadline.add(const Duration(hours: 1)),
+            description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
+          );
+        }
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -330,7 +380,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           icon: Icon(Icons.close_rounded, color: AppColors.label2),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('New task'),
+        title: Text(_editing ? 'Edit task' : 'New task'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -540,8 +590,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Calendar sync (timed tasks only, when writable calendars exist)
-          if (_kind == _TaskKind.scheduled && _writableCals.isNotEmpty) ...[
+          // Calendar sync (new, timed tasks only, when writable calendars exist)
+          if (!_editing && _kind == _TaskKind.scheduled && _writableCals.isNotEmpty) ...[
             _sectionLabel('CALENDAR'),
             const SizedBox(height: 10),
             Container(
@@ -609,34 +659,37 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
             const SizedBox(height: 24),
           ],
 
-          // Collaborators — quiet, optional
-          _sectionLabel('COLLABORATORS'),
-          const SizedBox(height: 10),
-          GestureDetector(
-            onTap: _pickCollaborators,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              decoration: BoxDecoration(
-                color: AppColors.card,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.separator, width: 1),
+          // Collaborators — quiet, optional (new tasks only; sharing an
+          // existing task is a separate, deliberate action elsewhere).
+          if (!_editing) ...[
+            _sectionLabel('COLLABORATORS'),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: _pickCollaborators,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.card,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.separator, width: 1),
+                ),
+                child: Row(children: [
+                  Icon(Icons.group_add_outlined, size: 20, color: AppColors.label2),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(
+                    _collab.isEmpty ? 'Share with a friend (optional)'
+                                    : '${_collab.length} ${_collab.length == 1 ? "friend" : "friends"} added',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: _collab.isEmpty ? FontWeight.w400 : FontWeight.w600,
+                      color: _collab.isEmpty ? AppColors.label3 : AppColors.label,
+                    ),
+                  )),
+                  Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
+                ]),
               ),
-              child: Row(children: [
-                Icon(Icons.group_add_outlined, size: 20, color: AppColors.label2),
-                const SizedBox(width: 12),
-                Expanded(child: Text(
-                  _collab.isEmpty ? 'Share with a friend (optional)'
-                                  : '${_collab.length} ${_collab.length == 1 ? "friend" : "friends"} added',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: _collab.isEmpty ? FontWeight.w400 : FontWeight.w600,
-                    color: _collab.isEmpty ? AppColors.label3 : AppColors.label,
-                  ),
-                )),
-                Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
-              ]),
             ),
-          ),
+          ],
         ],
       ),
     );

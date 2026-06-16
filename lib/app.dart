@@ -14,6 +14,7 @@ class AccountabilityApp extends ConsumerWidget {
     final themeMode = ref.watch(themeModeProvider);
     final textScale = ref.watch(textScaleProvider);
     final accentIdx = ref.watch(accentColorProvider);
+    final customHue = ref.watch(customAccentHueProvider);
     final use24h    = ref.watch(timeFormatProvider);
 
     return MaterialApp.router(
@@ -33,7 +34,7 @@ class AccountabilityApp extends ConsumerWidget {
       // direct AppColors.* getters resolve correctly every frame.
       builder: (context, child) {
         AppColors.dark = Theme.of(context).brightness == Brightness.dark;
-        AppColors.palette = accentPaletteForIndex(accentIdx);
+        AppColors.palette = accentPaletteForIndex(accentIdx, customHue);
         TimeFmt.use24h = use24h;
         // Apply the user's text-size choice globally, ignoring any extreme OS
         // setting so the layout stays in proportion.

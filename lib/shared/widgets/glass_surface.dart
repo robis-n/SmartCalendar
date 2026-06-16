@@ -2,13 +2,18 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 
-/// Authentic-feeling iOS frosted glass (the recipe a flat blur+tint box was
-/// missing): real `UIVisualEffectView` materials don't just blur what's
-/// behind them — they also boost its saturation ("vibrancy"), have a soft
-/// internal gradient rather than a flat fill, and catch a highlight along
-/// the top edge where light falls on the pane plus a faint diagonal sheen.
-/// This widget layers all four behind [child] in one place so every glass
-/// surface in the app (nav bar, day sheet, zoom rail) looks identical.
+/// Authentic-feeling iOS frosted glass. Built entirely from standard Flutter
+/// compositing (blur + color matrix + gradients) rather than a custom
+/// fragment shader, because the one real shader-based option on pub.dev
+/// (`liquid_glass_renderer`) ships a `.frag` asset that fails to compile
+/// under the web SkSL backend (non-constant loop bound), which breaks
+/// `flutter build web --release` outright — a non-starter for an app that
+/// ships to iOS *and* Web. This recipe instead layers: backdrop blur +
+/// vibrancy (saturation boost, the way `UIVisualEffectView` works), a soft
+/// top→bottom tint gradient, a top-left specular glint (light catching the
+/// pane), a directional sheen, and a four-sided rim that's brightest where
+/// light falls from above — all pure widgets, so it's identical and safe
+/// on every platform SmartCalendar ships to.
 class GlassSurface extends StatelessWidget {
   final Widget child;
   final BorderRadius borderRadius;
@@ -38,10 +43,8 @@ class GlassSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = AppColors.isDark;
-    // Rim catches light from above: bright along the top, fading on the
-    // sides, dimmest along the bottom — never a flat single-colour outline.
-    final rimTop  = dark ? Colors.white.withValues(alpha: 0.28) : Colors.white.withValues(alpha: 0.95);
-    final rimSide = dark ? Colors.white.withValues(alpha: 0.12) : Colors.white.withValues(alpha: 0.55);
+    final rimTop  = dark ? Colors.white.withValues(alpha: 0.32) : Colors.white.withValues(alpha: 0.95);
+    final rimSide = dark ? Colors.white.withValues(alpha: 0.14) : Colors.white.withValues(alpha: 0.55);
     final rimBtm  = dark ? Colors.white.withValues(alpha: 0.05) : Colors.white.withValues(alpha: 0.30);
 
     return ClipRRect(
@@ -62,7 +65,7 @@ class GlassSurface extends StatelessWidget {
                   end: Alignment.bottomCenter,
                   colors: [
                     Color.alphaBlend(
-                        Colors.white.withValues(alpha: dark ? 0.05 : 0.12),
+                        Colors.white.withValues(alpha: dark ? 0.06 : 0.14),
                         AppColors.glass),
                     AppColors.glass,
                   ],
@@ -72,6 +75,26 @@ class GlassSurface extends StatelessWidget {
                   left: BorderSide(color: rimSide, width: 0.8),
                   right: BorderSide(color: rimSide, width: 0.8),
                   bottom: BorderSide(color: rimBtm, width: 0.8),
+                ),
+              ),
+            ),
+          ),
+          // Specular glint — a soft, blurred bright patch top-left, like a
+          // real pane catching a single light source. Blurred with a plain
+          // ImageFilter.blur (Skia, web-safe) rather than a shader.
+          Positioned(
+            top: -18,
+            left: -18,
+            width: 90,
+            height: 60,
+            child: IgnorePointer(
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: dark ? 0.22 : 0.55),
+                  ),
                 ),
               ),
             ),
@@ -87,7 +110,7 @@ class GlassSurface extends StatelessWidget {
                     end: Alignment.bottomRight,
                     stops: const [0.0, 0.45],
                     colors: [
-                      Colors.white.withValues(alpha: dark ? 0.09 : 0.38),
+                      Colors.white.withValues(alpha: dark ? 0.1 : 0.4),
                       Colors.white.withValues(alpha: 0),
                     ],
                   ),

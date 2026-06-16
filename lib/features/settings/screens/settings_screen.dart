@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -135,7 +136,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const SizedBox(height: 12),
                   _AccentColorPicker(
                     selectedIndex: ref.watch(accentColorProvider),
+                    customHue: ref.watch(customAccentHueProvider),
                     onPick: (i) => ref.read(accentColorProvider.notifier).pick(i),
+                    onPickCustomHue: (hue) {
+                      ref.read(customAccentHueProvider.notifier).set(hue);
+                      ref.read(accentColorProvider.notifier).pick(kCustomAccentIndex);
+                    },
                   ),
                   const SizedBox(height: 12),
                   _TimeFormatSelector(
@@ -967,10 +973,16 @@ class _TextSizeSelector extends StatelessWidget {
 // Index 0 = Ink (monochrome). Selecting one recolours the whole app.
 
 class _AccentColorPicker extends StatelessWidget {
-  final int selectedIndex;        // 0 = Ink, 1..N = kAccentPalettes[i-1]
+  final int selectedIndex;        // 0 = Ink, 1..N = kAccentPalettes[i-1], kCustomAccentIndex = custom
+  final double customHue;
   final ValueChanged<int> onPick;
-  const _AccentColorPicker(
-      {required this.selectedIndex, required this.onPick});
+  final ValueChanged<double> onPickCustomHue; // called live while dragging the slider
+  const _AccentColorPicker({
+    required this.selectedIndex,
+    required this.customHue,
+    required this.onPick,
+    required this.onPickCustomHue,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1006,9 +1018,76 @@ class _AccentColorPicker extends StatelessWidget {
             _swatch(index: 0, name: 'Ink'),
             for (var i = 0; i < kAccentPalettes.length; i++)
               _swatch(index: i + 1, name: kAccentPalettes[i].name),
+            _customSwatch(context),
           ]),
         ),
       ]),
+    );
+  }
+
+  // The "Custom" swatch — a rainbow ring instead of a flat colour, since it
+  // represents "pick anything", not one fixed hue. Opens the slider sheet.
+  Widget _customSwatch(BuildContext context) {
+    final selected = selectedIndex == kCustomAccentIndex;
+    final accent = derivePaletteFromHue(customHue).darkAccent;
+    return GestureDetector(
+      onTap: () => _openHueSheet(context),
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 14),
+        child: Column(children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 46, height: 46,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const SweepGradient(colors: [
+                Color(0xFFFF3B30), Color(0xFFFF9500), Color(0xFFFFD60A),
+                Color(0xFF34C759), Color(0xFF0A84FF), Color(0xFFAF52DE),
+                Color(0xFFFF3B30),
+              ]),
+              border: Border.all(
+                color: selected ? accent : AppColors.separator,
+                width: selected ? 2.5 : 1,
+              ),
+              boxShadow: selected
+                  ? [BoxShadow(
+                      color: accent.withValues(alpha: 0.45),
+                      blurRadius: 14, spreadRadius: 1)]
+                  : null,
+            ),
+            alignment: Alignment.center,
+            child: selected
+                ? Container(
+                    width: 16, height: 16,
+                    decoration: BoxDecoration(
+                        color: Colors.white, shape: BoxShape.circle),
+                    child: Icon(Icons.check_rounded, size: 12, color: accent),
+                  )
+                : null,
+          ),
+          const SizedBox(height: 6),
+          Text('Custom',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? AppColors.label : AppColors.label3)),
+        ]),
+      ),
+    );
+  }
+
+  void _openHueSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      useRootNavigator: true,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => _HueSliderSheet(
+        initialHue: customHue,
+        onChanged: onPickCustomHue,
+      ),
     );
   }
 
@@ -1071,6 +1150,121 @@ class _AccentColorPicker extends StatelessWidget {
                   fontSize: 11,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   color: selected ? AppColors.label : AppColors.label3)),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Custom hue slider sheet ───────────────────────────────────────────────────
+// Drag anywhere along the rainbow bar to pick a colour; the whole app's theme
+// previews live as you drag (onChanged fires per pixel of movement), then
+// "Done" just closes the sheet — there's nothing further to "apply".
+class _HueSliderSheet extends StatefulWidget {
+  final double initialHue;
+  final ValueChanged<double> onChanged;
+  const _HueSliderSheet({required this.initialHue, required this.onChanged});
+  @override
+  State<_HueSliderSheet> createState() => _HueSliderSheetState();
+}
+
+class _HueSliderSheetState extends State<_HueSliderSheet> {
+  late double _hue = widget.initialHue;
+
+  void _setFromDx(double dx, double width) {
+    final hue = (dx / width).clamp(0.0, 1.0) * 360;
+    setState(() => _hue = hue);
+    widget.onChanged(hue);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = derivePaletteFromHue(_hue);
+    final dominant = AppColors.isDark ? palette.darkBg : palette.lightBg;
+    final accent   = AppColors.isDark ? palette.darkAccent : palette.lightAccent;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 40, height: 5,
+              decoration: BoxDecoration(color: AppColors.separator,
+                  borderRadius: BorderRadius.circular(3))),
+          const SizedBox(height: 20),
+          Row(children: [
+            Text('Pick a colour',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700,
+                    color: AppColors.label)),
+            const Spacer(),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Done',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700,
+                      color: AppColors.label)),
+            ),
+          ]),
+          const SizedBox(height: 20),
+          // Live preview — dominant surface + complementary accent dot,
+          // exactly what the rest of the app will look like.
+          Row(children: [
+            Container(
+              width: 56, height: 56,
+              decoration: BoxDecoration(color: dominant, shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.separator, width: 1)),
+              alignment: Alignment.bottomRight,
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Container(width: 18, height: 18,
+                    decoration: BoxDecoration(color: accent, shape: BoxShape.circle)),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                'The whole app recolours to match — a deep surface in this '
+                'hue, with its complement as the accent.',
+                style: TextStyle(fontSize: 13, color: AppColors.label3, height: 1.4),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 24),
+          // The hue bar itself.
+          LayoutBuilder(builder: (ctx, c) {
+            final width = c.maxWidth;
+            void handle(Offset local) => _setFromDx(local.dx, width);
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanDown:   (d) { HapticFeedback.selectionClick(); handle(d.localPosition); },
+              onPanUpdate: (d) => handle(d.localPosition),
+              child: Container(
+                height: 44,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(22),
+                  gradient: const LinearGradient(colors: [
+                    Color(0xFFFF3B30), Color(0xFFFF9500), Color(0xFFFFD60A),
+                    Color(0xFF34C759), Color(0xFF0A84FF), Color(0xFFAF52DE),
+                    Color(0xFFFF3B30),
+                  ]),
+                ),
+                child: Stack(children: [
+                  Positioned(
+                    left: (_hue / 360 * width - 14).clamp(0.0, width - 28),
+                    top: 6, bottom: 6,
+                    child: Container(
+                      width: 28,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.black.withValues(alpha: 0.15)),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+            );
+          }),
         ]),
       ),
     );

@@ -68,14 +68,25 @@ class TextScaleNotifier extends StateNotifier<double> {
 
 // ── Theme palette (duotone) ─────────────────────────────────────────────────
 // Index 0 = Ink (monochrome default). 1..N map to kAccentPalettes[index-1] —
-// bold complementary duotones that recolour the WHOLE app. State is the index
-// so the picker can show a tidy row; AppColors.palette is the resolved palette.
+// curated complementary duotones. Index kCustomAccentIndex is "Custom": the
+// palette is generated on the fly from customAccentHueProvider's hue (any
+// colour from the slider), via derivePaletteFromHue. State is the index so
+// the picker can show a tidy row; AppColors.palette is the resolved palette.
+const String _kCustomHueKey = 'custom_accent_hue';
+final int kCustomAccentIndex = kAccentPalettes.length + 1;
+
 /// Resolve a stored accent index to its palette (null = Ink/monochrome).
-/// Public so app.dart can keep AppColors in sync each frame.
-AccentPalette? accentPaletteForIndex(int index) =>
-    (index >= 1 && index <= kAccentPalettes.length)
-        ? kAccentPalettes[index - 1]
-        : null;
+/// Public so app.dart can keep AppColors in sync each frame. [customHue] is
+/// only consulted when [index] selects the custom slot.
+AccentPalette? accentPaletteForIndex(int index, [double? customHue]) {
+  if (index >= 1 && index <= kAccentPalettes.length) {
+    return kAccentPalettes[index - 1];
+  }
+  if (index == kCustomAccentIndex) {
+    return derivePaletteFromHue(customHue ?? 220);
+  }
+  return null;
+}
 
 final accentColorProvider =
     StateNotifierProvider<AccentColorNotifier, int>(
@@ -83,24 +94,51 @@ final accentColorProvider =
 
 class AccentColorNotifier extends StateNotifier<int> {
   AccentColorNotifier() : super(_load()) {
-    AppColors.palette = accentPaletteForIndex(state);
+    AppColors.palette = accentPaletteForIndex(state, _loadHue());
   }
 
   static int _load() {
     try {
       final i = Hive.box(kSettingsBox).get(_kAccentKey, defaultValue: 0) as int;
-      return (i >= 0 && i <= kAccentPalettes.length) ? i : 0;
+      return (i >= 0 && i <= kCustomAccentIndex) ? i : 0;
     } catch (_) {
       return 0;
     }
   }
 
+  static double _loadHue() {
+    try {
+      return Hive.box(kSettingsBox).get(_kCustomHueKey, defaultValue: 220.0) as double;
+    } catch (_) {
+      return 220;
+    }
+  }
+
+  // Reads the freshly-persisted hue, so picking right after dragging the
+  // slider (which writes via CustomHueNotifier.set first) resolves correctly
+  // — Hive's in-memory box is consistent immediately, only disk flush is async.
   void pick(int index) {
-    if (index < 0 || index > kAccentPalettes.length) return;
+    if (index < 0 || index > kCustomAccentIndex) return;
     state = index;
-    AppColors.palette = accentPaletteForIndex(index);
+    AppColors.palette = accentPaletteForIndex(index, _loadHue());
     try {
       Hive.box(kSettingsBox).put(_kAccentKey, index);
+    } catch (_) {}
+  }
+}
+
+/// The persisted custom hue, for the picker to show the slider at the right
+/// starting position and for app.dart to resolve the palette each frame.
+final customAccentHueProvider = StateNotifierProvider<CustomHueNotifier, double>(
+    (ref) => CustomHueNotifier());
+
+class CustomHueNotifier extends StateNotifier<double> {
+  CustomHueNotifier() : super(AccentColorNotifier._loadHue());
+
+  void set(double hue) {
+    state = hue;
+    try {
+      Hive.box(kSettingsBox).put(_kCustomHueKey, hue);
     } catch (_) {}
   }
 }

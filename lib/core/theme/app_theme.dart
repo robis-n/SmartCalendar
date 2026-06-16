@@ -202,6 +202,32 @@ const List<AccentPalette> kAccentPalettes = [
   ),
 ];
 
+/// Builds a full [AccentPalette] from a single seed hue (0–360°), so the user
+/// can pick ANY colour — not just the curated presets — and get a matching
+/// duotone in the same spirit: a deep, saturated surface family in the seed
+/// hue, paired with its colour-wheel complement (seed + 180°) as the vivid
+/// accent. Lightness/saturation tiers are modelled on the hand-tuned presets
+/// above so a custom hue still reads as "designed", not just a raw colour.
+AccentPalette derivePaletteFromHue(double hue) {
+  final h = hue % 360;
+  final complement = (h + 180) % 360;
+  Color hsl(double hue, double sat, double light) =>
+      HSLColor.fromAHSL(1, hue, sat, light).toColor();
+  return AccentPalette(
+    name: 'Custom',
+    darkBg:        hsl(h, 0.55, 0.10),
+    darkSurface:   hsl(h, 0.50, 0.15),
+    darkSurface2:  hsl(h, 0.42, 0.21),
+    darkInk:       hsl(h, 0.15, 0.95),
+    darkAccent:    hsl(complement, 0.85, 0.62),
+    lightBg:       hsl(h, 0.55, 0.92),
+    lightSurface:  hsl(h, 0.30, 0.99),
+    lightSurface2: hsl(h, 0.40, 0.86),
+    lightInk:      hsl(h, 0.55, 0.11),
+    lightAccent:   hsl(complement, 0.75, 0.42),
+  );
+}
+
 /// ─────────────────────────────────────────────────────────────────────────
 ///  MOTION — one place for the curves & durations that give the app its
 ///  "human" feel. These mirror the easing the best web/native UIs lean on:
