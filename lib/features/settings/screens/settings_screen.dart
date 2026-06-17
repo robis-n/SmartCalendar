@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart' show CupertinoPageRoute;
-import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_theme.dart';
@@ -137,10 +138,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const SizedBox(height: 12),
                   _AccentColorPicker(
                     selectedIndex: ref.watch(accentColorProvider),
-                    customHue: ref.watch(customAccentHueProvider),
+                    customColor: ref.watch(customAccentColorProvider),
                     onPick: (i) => ref.read(accentColorProvider.notifier).pick(i),
-                    onPickCustomHue: (hue) {
-                      ref.read(customAccentHueProvider.notifier).set(hue);
+                    onPickCustomColor: (color) {
+                      ref.read(customAccentColorProvider.notifier).set(color);
                       ref.read(accentColorProvider.notifier).pick(kCustomAccentIndex);
                     },
                   ),
@@ -600,8 +601,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ])),
   );
 
-  // Per-calendar visibility chooser — scrollable list of every device
-  // calendar with a toggle each. Newly-synced calendars default to shown.
+  // Per-calendar visibility chooser — grouped by account kind with custom
+  // group support. Sections: Apple / Google / Other + user-created groups.
   Future<void> _pickCalendars() async {
     final cals = await DeviceCalendarService.allCalendars();
     if (!mounted) return;
@@ -609,111 +610,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _snack('No calendars found on this device');
       return;
     }
-    // Local mutable copy so toggles feel instant; each flip persists.
     final hidden = DeviceCalendarService.hiddenCalendarIds();
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      // Cover the floating nav bar so the last calendar isn't clipped behind it.
       useRootNavigator: true,
       backgroundColor: AppColors.card,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, ss) => DraggableScrollableSheet(
-          initialChildSize: 0.6,
-          minChildSize: 0.4,
-          maxChildSize: 0.92,
-          expand: false,
-          builder: (ctx, scrollCtrl) => Column(children: [
-            const SizedBox(height: 12),
-            Container(
-                width: 40, height: 5,
-                decoration: BoxDecoration(
-                    color: AppColors.separator,
-                    borderRadius: BorderRadius.circular(3))),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 18, 24, 6),
-              child: Row(children: [
-                Text('Choose calendars',
-                    style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.label,
-                        letterSpacing: -0.5)),
-                const Spacer(),
-                TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: Text('Done',
-                        style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.label))),
-              ]),
-            ),
-            Expanded(
-              child: ListView.separated(
-                controller: scrollCtrl,
-                padding: EdgeInsets.fromLTRB(
-                    24, 6, 24, MediaQuery.of(ctx).padding.bottom + 32),
-                itemCount: cals.length,
-                separatorBuilder: (_, _) =>
-                    Container(height: 0.5, color: AppColors.separator),
-                itemBuilder: (_, i) {
-                  final c = cals[i];
-                  final visible = !hidden.contains(c.id);
-                  final dot = c.color != null
-                      ? Color(c.color!)
-                      : AppColors.label2;
-                  final sub = switch (c.kind) {
-                    'google' => c.isReadOnly ? 'Google · read-only' : 'Google',
-                    'apple'  => c.isReadOnly ? 'Apple · read-only' : 'Apple',
-                    _        => c.isReadOnly ? 'Read-only' : null,
-                  };
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(children: [
-                      Icon(Icons.circle, size: 14, color: dot),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(c.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500,
-                                      color: AppColors.label)),
-                              if (sub != null)
-                                Text(sub,
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: AppColors.label3)),
-                            ]),
-                      ),
-                      Switch.adaptive(
-                        value: visible,
-                        onChanged: (v) async {
-                          ss(() {
-                            if (v) {
-                              hidden.remove(c.id);
-                            } else {
-                              hidden.add(c.id);
-                            }
-                          });
-                          await DeviceCalendarService.setCalendarHidden(
-                              c.id, !v);
-                        },
-                      ),
-                    ]),
-                  );
-                },
-              ),
-            ),
-          ]),
-        ),
+      builder: (ctx) => _CalendarPickerSheet(
+        cals: cals,
+        hidden: hidden,
       ),
     );
   }
@@ -975,14 +882,14 @@ class _TextSizeSelector extends StatelessWidget {
 
 class _AccentColorPicker extends StatelessWidget {
   final int selectedIndex;        // 0 = Ink, 1..N = kAccentPalettes[i-1], kCustomAccentIndex = custom
-  final double customHue;
+  final Color customColor;
   final ValueChanged<int> onPick;
-  final ValueChanged<double> onPickCustomHue; // called live while dragging the slider
+  final ValueChanged<Color> onPickCustomColor;
   const _AccentColorPicker({
     required this.selectedIndex,
-    required this.customHue,
+    required this.customColor,
     required this.onPick,
-    required this.onPickCustomHue,
+    required this.onPickCustomColor,
   });
 
   @override
@@ -1026,13 +933,12 @@ class _AccentColorPicker extends StatelessWidget {
     );
   }
 
-  // The "Custom" swatch — a rainbow ring instead of a flat colour, since it
-  // represents "pick anything", not one fixed hue. Opens the slider sheet.
+  // The "Custom" swatch — shows the currently picked color (rainbow ring when
+  // no custom pick yet). Opens the full HSV color picker sheet.
   Widget _customSwatch(BuildContext context) {
     final selected = selectedIndex == kCustomAccentIndex;
-    final accent = derivePaletteFromHue(customHue).darkAccent;
     return GestureDetector(
-      onTap: () => _openHueSheet(context),
+      onTap: () => _openColorSheet(context),
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.only(right: 14),
@@ -1042,30 +948,34 @@ class _AccentColorPicker extends StatelessWidget {
             width: 46, height: 46,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: const SweepGradient(colors: [
-                Color(0xFFFF3B30), Color(0xFFFF9500), Color(0xFFFFD60A),
-                Color(0xFF34C759), Color(0xFF0A84FF), Color(0xFFAF52DE),
-                Color(0xFFFF3B30),
-              ]),
-              border: Border.all(
-                color: selected ? accent : AppColors.separator,
-                width: selected ? 2.5 : 1,
-              ),
               boxShadow: selected
                   ? [BoxShadow(
-                      color: accent.withValues(alpha: 0.45),
+                      color: customColor.withValues(alpha: 0.5),
                       blurRadius: 14, spreadRadius: 1)]
                   : null,
             ),
-            alignment: Alignment.center,
-            child: selected
-                ? Container(
-                    width: 16, height: 16,
-                    decoration: BoxDecoration(
-                        color: Colors.white, shape: BoxShape.circle),
-                    child: Icon(Icons.check_rounded, size: 12, color: accent),
-                  )
-                : null,
+            child: ClipOval(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: selected
+                      ? null
+                      : const SweepGradient(colors: [
+                          Color(0xFFFF3B30), Color(0xFFFF9500), Color(0xFFFFD60A),
+                          Color(0xFF34C759), Color(0xFF0A84FF), Color(0xFFAF52DE),
+                          Color(0xFFFF3B30),
+                        ]),
+                  color: selected ? customColor : null,
+                  border: Border.all(
+                    color: selected ? customColor : AppColors.separator,
+                    width: selected ? 2.5 : 1,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: selected
+                    ? Icon(Icons.check_rounded, size: 18, color: customColor.computeLuminance() > 0.4 ? Colors.black : Colors.white)
+                    : null,
+              ),
+            ),
           ),
           const SizedBox(height: 6),
           Text('Custom',
@@ -1078,16 +988,17 @@ class _AccentColorPicker extends StatelessWidget {
     );
   }
 
-  void _openHueSheet(BuildContext context) {
+  void _openColorSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       useRootNavigator: true,
+      isScrollControlled: true,
       backgroundColor: AppColors.card,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (_) => _HueSliderSheet(
-        initialHue: customHue,
-        onChanged: onPickCustomHue,
+      builder: (_) => _ColorPickerSheet(
+        initialColor: customColor,
+        onChanged: onPickCustomColor,
       ),
     );
   }
@@ -1110,40 +1021,47 @@ class _AccentColorPicker extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.only(right: 14),
         child: Column(children: [
+          // Outer container owns the boxShadow glow (outside the clip).
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
             width: 46, height: 46,
             decoration: BoxDecoration(
-              color: dominant,
               shape: BoxShape.circle,
-              border: Border.all(
-                color: selected ? accent : AppColors.separator,
-                width: selected ? 2.5 : 1,
-              ),
-              // Soft circular halo around the selected swatch (rounded, not
-              // clipped). spreadRadius keeps it even all the way around.
               boxShadow: selected
                   ? [BoxShadow(
                       color: accent.withValues(alpha: 0.45),
                       blurRadius: 14, spreadRadius: 1)]
                   : null,
             ),
-            alignment: Alignment.center,
-            child: selected
-                ? Icon(Icons.check_rounded, size: 18, color: accent)
-                // Accent dot, inset — shows the duotone pairing at rest.
-                : Align(
-                    alignment: Alignment.bottomRight,
-                    child: Padding(
-                      padding: const EdgeInsets.all(7),
-                      child: Container(
-                        width: 12, height: 12,
-                        decoration:
-                            BoxDecoration(color: accent, shape: BoxShape.circle),
-                      ),
-                    ),
+            // ClipOval ensures the circle border and child content never bleed
+            // outside the 46×46 circle — fixes the visible border-overflow bug.
+            child: ClipOval(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: dominant,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: selected ? accent : AppColors.separator,
+                    width: selected ? 2.5 : 1,
                   ),
+                ),
+                alignment: Alignment.center,
+                child: selected
+                    ? Icon(Icons.check_rounded, size: 18, color: accent)
+                    : Align(
+                        alignment: Alignment.bottomRight,
+                        child: Padding(
+                          padding: const EdgeInsets.all(7),
+                          child: Container(
+                            width: 12, height: 12,
+                            decoration: BoxDecoration(
+                                color: accent, shape: BoxShape.circle),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
           ),
           const SizedBox(height: 6),
           Text(name,
@@ -1157,40 +1075,32 @@ class _AccentColorPicker extends StatelessWidget {
   }
 }
 
-// ── Custom hue slider sheet ───────────────────────────────────────────────────
-// Drag anywhere along the rainbow bar to pick a colour; the whole app's theme
-// previews live as you drag (onChanged fires per pixel of movement), then
-// "Done" just closes the sheet — there's nothing further to "apply".
-class _HueSliderSheet extends StatefulWidget {
-  final double initialHue;
-  final ValueChanged<double> onChanged;
-  const _HueSliderSheet({required this.initialHue, required this.onChanged});
+// ── Full HSV color picker sheet ───────────────────────────────────────────────
+// Uses flutter_colorpicker's SaturationValueIndicator + HueRingPicker so the
+// user can pick ANY colour freely — hue ring on the outside, saturation/value
+// square in the middle. The whole app recolours live as they drag.
+class _ColorPickerSheet extends StatefulWidget {
+  final Color initialColor;
+  final ValueChanged<Color> onChanged;
+  const _ColorPickerSheet({required this.initialColor, required this.onChanged});
   @override
-  State<_HueSliderSheet> createState() => _HueSliderSheetState();
+  State<_ColorPickerSheet> createState() => _ColorPickerSheetState();
 }
 
-class _HueSliderSheetState extends State<_HueSliderSheet> {
-  late double _hue = widget.initialHue;
-
-  void _setFromDx(double dx, double width) {
-    final hue = (dx / width).clamp(0.0, 1.0) * 360;
-    setState(() => _hue = hue);
-    widget.onChanged(hue);
-  }
+class _ColorPickerSheetState extends State<_ColorPickerSheet> {
+  late Color _color = widget.initialColor;
 
   @override
   Widget build(BuildContext context) {
-    final palette = derivePaletteFromHue(_hue);
-    final dominant = AppColors.isDark ? palette.darkBg : palette.lightBg;
-    final accent   = AppColors.isDark ? palette.darkAccent : palette.lightAccent;
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(width: 40, height: 5,
-              decoration: BoxDecoration(color: AppColors.separator,
+              decoration: BoxDecoration(
+                  color: AppColors.separator,
                   borderRadius: BorderRadius.circular(3))),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           Row(children: [
             Text('Pick a colour',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700,
@@ -1203,71 +1113,335 @@ class _HueSliderSheetState extends State<_HueSliderSheet> {
                       color: AppColors.label)),
             ),
           ]),
-          const SizedBox(height: 20),
-          // Live preview — dominant surface + complementary accent dot,
-          // exactly what the rest of the app will look like.
+          const SizedBox(height: 12),
+          HueRingPicker(
+            pickerColor: _color,
+            onColorChanged: (c) {
+              setState(() => _color = c);
+              widget.onChanged(c);
+            },
+            colorPickerHeight: 240,
+            hueRingStrokeWidth: 28,
+            enableAlpha: false,
+            displayThumbColor: true,
+          ),
+          const SizedBox(height: 12),
+          // Hex input row.
           Row(children: [
-            Container(
-              width: 56, height: 56,
-              decoration: BoxDecoration(color: dominant, shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.separator, width: 1)),
-              alignment: Alignment.bottomRight,
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Container(width: 18, height: 18,
-                    decoration: BoxDecoration(color: accent, shape: BoxShape.circle)),
-              ),
-            ),
-            const SizedBox(width: 16),
             Expanded(
-              child: Text(
-                'The whole app recolours to match — a deep surface in this '
-                'hue, with its complement as the accent.',
-                style: TextStyle(fontSize: 13, color: AppColors.label3, height: 1.4),
-              ),
-            ),
-          ]),
-          const SizedBox(height: 24),
-          // The hue bar itself.
-          LayoutBuilder(builder: (ctx, c) {
-            final width = c.maxWidth;
-            void handle(Offset local) => _setFromDx(local.dx, width);
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onPanDown:   (d) { HapticFeedback.selectionClick(); handle(d.localPosition); },
-              onPanUpdate: (d) => handle(d.localPosition),
               child: Container(
                 height: 44,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(22),
-                  gradient: const LinearGradient(colors: [
-                    Color(0xFFFF3B30), Color(0xFFFF9500), Color(0xFFFFD60A),
-                    Color(0xFF34C759), Color(0xFF0A84FF), Color(0xFFAF52DE),
-                    Color(0xFFFF3B30),
-                  ]),
+                  color: AppColors.bg2,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.separator),
                 ),
-                child: Stack(children: [
-                  Positioned(
-                    left: (_hue / 360 * width - 14).clamp(0.0, width - 28),
-                    top: 6, bottom: 6,
-                    child: Container(
-                      width: 28,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.black.withValues(alpha: 0.15)),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ]),
+                alignment: Alignment.center,
+                child: ColorPickerInput(
+                  _color,
+                  (c) {
+                    setState(() => _color = c);
+                    widget.onChanged(c);
+                  },
+                  enableAlpha: false,
+                  embeddedText: false,
+                ),
               ),
-            );
-          }),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                  color: _color, borderRadius: BorderRadius.circular(10)),
+            ),
+          ]),
         ]),
       ),
+    );
+  }
+}
+
+// ── Calendar picker sheet (grouped by account kind + custom groups) ──────────
+
+const String _kCalGroupsKey = 'calendar_custom_groups';
+
+class _CalGroup {
+  String name;
+  int colorArgb;
+  Set<String> calendarIds;
+  _CalGroup({required this.name, required this.colorArgb, Set<String>? calendarIds})
+      : calendarIds = calendarIds ?? {};
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'color': colorArgb,
+    'ids': calendarIds.toList(),
+  };
+  factory _CalGroup.fromJson(Map<dynamic, dynamic> m) => _CalGroup(
+    name: m['name'] as String? ?? 'Group',
+    colorArgb: (m['color'] as num?)?.toInt() ?? 0xFF34C759,
+    calendarIds: Set<String>.from((m['ids'] as List?) ?? []),
+  );
+}
+
+List<_CalGroup> _loadCalGroups() {
+  try {
+    final raw = Hive.box(kSettingsBox).get(_kCalGroupsKey);
+    if (raw is List) {
+      return raw.whereType<Map>().map((m) => _CalGroup.fromJson(m)).toList();
+    }
+  } catch (_) {}
+  return [];
+}
+
+void _saveCalGroups(List<_CalGroup> groups) {
+  try {
+    Hive.box(kSettingsBox).put(
+        _kCalGroupsKey, groups.map((g) => g.toJson()).toList());
+  } catch (_) {}
+}
+
+class _CalendarPickerSheet extends StatefulWidget {
+  final List<DeviceCalendarInfo> cals;
+  final Set<String> hidden;
+  const _CalendarPickerSheet({required this.cals, required this.hidden});
+  @override
+  State<_CalendarPickerSheet> createState() => _CalendarPickerSheetState();
+}
+
+class _CalendarPickerSheetState extends State<_CalendarPickerSheet> {
+  late final Set<String> _hidden = Set.from(widget.hidden);
+  late List<_CalGroup> _groups = _loadCalGroups();
+
+  void _toggleCalendar(String id, bool visible) {
+    setState(() {
+      if (visible) { _hidden.remove(id); } else { _hidden.add(id); }
+    });
+    DeviceCalendarService.setCalendarHidden(id, !visible);
+  }
+
+  Future<void> _addGroup() async {
+    final ctrl = TextEditingController();
+    Color picked = const Color(0xFF0A84FF);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dlgCtx) => StatefulBuilder(
+        builder: (dlgCtx, ss) => AlertDialog(
+          backgroundColor: AppColors.card,
+          title: Text('New group',
+              style: TextStyle(color: AppColors.label, fontWeight: FontWeight.w700)),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              style: TextStyle(color: AppColors.label),
+              decoration: InputDecoration(
+                hintText: 'Group name',
+                hintStyle: TextStyle(color: AppColors.label3),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.separator)),
+                focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.accent)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(children: [
+              Text('Color:', style: TextStyle(color: AppColors.label2, fontSize: 14)),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: () async {
+                  Color temp = picked;
+                  await showModalBottomSheet(
+                    context: dlgCtx,
+                    isScrollControlled: true,
+                    backgroundColor: AppColors.card,
+                    shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+                    builder: (_) => _ColorPickerSheet(
+                      initialColor: picked,
+                      onChanged: (c) => temp = c,
+                    ),
+                  );
+                  ss(() => picked = temp);
+                },
+                child: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: picked,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.separator),
+                  ),
+                ),
+              ),
+            ]),
+          ]),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dlgCtx, false),
+              child: Text('Cancel', style: TextStyle(color: AppColors.label3)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dlgCtx, true),
+              child: Text('Create', style: TextStyle(
+                  color: AppColors.accent, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == true && ctrl.text.trim().isNotEmpty) {
+      setState(() {
+        _groups = [..._groups, _CalGroup(name: ctrl.text.trim(), colorArgb: picked.toARGB32())];
+      });
+      _saveCalGroups(_groups);
+    }
+    ctrl.dispose();
+  }
+
+  void _deleteGroup(int idx) {
+    setState(() { _groups = [..._groups]..removeAt(idx); });
+    _saveCalGroups(_groups);
+  }
+
+  Widget _sectionHeader(String label, {Color? dotColor, VoidCallback? onDelete}) =>
+      Padding(
+        padding: const EdgeInsets.fromLTRB(0, 18, 0, 6),
+        child: Row(children: [
+          if (dotColor != null) ...[
+            Container(width: 10, height: 10,
+                decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+          ],
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.label3,
+                  letterSpacing: 0.8)),
+          const Spacer(),
+          if (onDelete != null)
+            GestureDetector(
+              onTap: onDelete,
+              child: Icon(Icons.delete_outline, size: 18, color: AppColors.label3),
+            ),
+        ]),
+      );
+
+  Widget _calRow(DeviceCalendarInfo c) {
+    final visible = !_hidden.contains(c.id);
+    final dot = c.color != null ? Color(c.color!) : AppColors.label2;
+    final sub = switch (c.kind) {
+      'google' => c.isReadOnly ? 'Google · read-only' : 'Google',
+      'apple'  => c.isReadOnly ? 'Apple · read-only'  : 'Apple',
+      _        => c.isReadOnly ? 'Read-only' : null,
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(children: [
+        Icon(Icons.circle, size: 14, color: dot),
+        const SizedBox(width: 14),
+        Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(c.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500,
+                      color: AppColors.label)),
+              if (sub != null)
+                Text(sub, style: TextStyle(fontSize: 12, color: AppColors.label3)),
+            ])),
+        Switch.adaptive(
+          value: visible,
+          onChanged: (v) => _toggleCalendar(c.id, v),
+        ),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final apple  = widget.cals.where((c) => c.kind == 'apple').toList();
+    final google = widget.cals.where((c) => c.kind == 'google').toList();
+    final other  = widget.cals.where(
+        (c) => c.kind != 'apple' && c.kind != 'google').toList();
+
+    final items = <Widget>[];
+
+    void addSection(String label, List<DeviceCalendarInfo> list, {Color? dotColor, VoidCallback? onDelete}) {
+      if (list.isEmpty && onDelete == null) return;
+      items.add(_sectionHeader(label, dotColor: dotColor, onDelete: onDelete));
+      if (list.isEmpty) {
+        items.add(Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text('No calendars assigned',
+              style: TextStyle(fontSize: 13, color: AppColors.label3)),
+        ));
+        return;
+      }
+      for (var i = 0; i < list.length; i++) {
+        items.add(_calRow(list[i]));
+        if (i < list.length - 1) {
+          items.add(Container(height: 0.5, color: AppColors.separator));
+        }
+      }
+    }
+
+    addSection('APPLE', apple);
+    addSection('GOOGLE', google);
+    addSection('OTHER', other);
+
+    for (var gi = 0; gi < _groups.length; gi++) {
+      final g = _groups[gi];
+      final members = widget.cals.where((c) => g.calendarIds.contains(c.id)).toList();
+      addSection(
+        g.name.toUpperCase(),
+        members,
+        dotColor: Color(g.colorArgb),
+        onDelete: () => _deleteGroup(gi),
+      );
+    }
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.65,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (ctx, scrollCtrl) => Column(children: [
+        const SizedBox(height: 12),
+        Container(width: 40, height: 5,
+            decoration: BoxDecoration(
+                color: AppColors.separator,
+                borderRadius: BorderRadius.circular(3))),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 6),
+          child: Row(children: [
+            Text('Calendars',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
+                    color: AppColors.label, letterSpacing: -0.5)),
+            const Spacer(),
+            IconButton(
+              icon: Icon(Icons.add_circle_outline, color: AppColors.accent),
+              tooltip: 'New group',
+              onPressed: _addGroup,
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Done', style: TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.label)),
+            ),
+          ]),
+        ),
+        Expanded(
+          child: ListView.builder(
+            controller: scrollCtrl,
+            padding: EdgeInsets.fromLTRB(
+                24, 6, 24, MediaQuery.of(ctx).padding.bottom + 32),
+            itemCount: items.length,
+            itemBuilder: (_, i) => items[i],
+          ),
+        ),
+      ]),
     );
   }
 }

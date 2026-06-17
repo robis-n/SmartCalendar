@@ -31,6 +31,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   final _title = TextEditingController();
   final _desc  = TextEditingController();
   late DateTime _deadline;
+  late DateTime _endTime; // end time for scheduled tasks (default: start + 1h)
   _TaskKind _kind = _TaskKind.scheduled;
   String _priority    = 'medium';
   bool   _saving      = false;
@@ -43,6 +44,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   List<Map<String, dynamic>> _friends = [];
   List<Map<String, dynamic>> _groups  = []; // named friend groups (e.g. Family)
   final Set<String> _collab = {};
+  Set<String> _originalCollab = {}; // collaborators already on the task (edit mode)
 
   bool get _editing => widget.existingTask != null;
 
@@ -64,16 +66,25 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       } else {
         _kind = _TaskKind.scheduled;
         _deadline = sched;
+        // Restore end time if stored; default to start+1h.
+        final endRaw = existing['end_time'] as String?;
+        _endTime = endRaw != null
+            ? tsTryFromDb(endRaw) ?? _deadline.add(const Duration(hours: 1))
+            : _deadline.add(const Duration(hours: 1));
       }
       _priority = existing['priority'] as String? ?? 'medium';
       _requireProof = existing['verification_required'] != false;
       final rec = existing['recurrence'];
       _recurrence = rec is Map ? rec.cast<String, dynamic>() : null;
+      // Load friends and existing collaborators for the edit-mode picker.
+      _loadFriends();
+      _loadExistingCollaborators(existing['id'] as String);
     } else {
       final d = widget.initialDate;
       _deadline = d != null
           ? DateTime(d.year, d.month, d.day, 9, 0)
           : DateTime.now().add(const Duration(hours: 1));
+      _endTime = _deadline.add(const Duration(hours: 1));
       // Opened from a specific day → default to a day-anchored task on that day.
       if (d != null) _kind = _TaskKind.today;
       _loadFriends();
@@ -85,6 +96,16 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     final f = await SupabaseService.getAcceptedFriends();
     final g = await SupabaseService.getFriendGroups();
     if (mounted) setState(() { _friends = f; _groups = g; });
+  }
+
+  Future<void> _loadExistingCollaborators(String taskId) async {
+    final ids = await SupabaseService.getCollaboratorsForTask(taskId);
+    if (mounted) {
+      setState(() {
+        _originalCollab = Set.from(ids);
+        _collab.addAll(ids);
+      });
+    }
   }
 
   Future<void> _loadCalendars() async {
@@ -108,7 +129,12 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       lastDate: DateTime(DateTime.now().year + 5, 12, 31),
     );
     if (d != null && mounted) {
-      setState(() => _deadline = DateTime(d.year, d.month, d.day, _deadline.hour, _deadline.minute));
+      setState(() {
+        _deadline = DateTime(d.year, d.month, d.day, _deadline.hour, _deadline.minute);
+        // Keep end time on the same date.
+        _endTime = DateTime(d.year, d.month, d.day, _endTime.hour, _endTime.minute);
+        if (!_endTime.isAfter(_deadline)) _endTime = _deadline.add(const Duration(hours: 1));
+      });
     }
   }
 
@@ -162,7 +188,63 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       ),
     );
     if (mounted) {
-      setState(() => _deadline =
+      setState(() {
+        _deadline = DateTime(_deadline.year, _deadline.month, _deadline.day, temp.hour, temp.minute);
+        if (!_endTime.isAfter(_deadline)) _endTime = _deadline.add(const Duration(hours: 1));
+      });
+    }
+  }
+
+  Future<void> _pickEndTime() async {
+    DateTime temp = _endTime;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 12),
+          Container(width: 40, height: 5,
+              decoration: BoxDecoration(color: AppColors.separator,
+                  borderRadius: BorderRadius.circular(3))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 12, 4),
+            child: Row(children: [
+              Text('End time',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.label)),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Done',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.label)),
+              ),
+            ]),
+          ),
+          SizedBox(
+            height: 216,
+            child: CupertinoTheme(
+              data: CupertinoThemeData(
+                brightness: AppColors.isDark ? Brightness.dark : Brightness.light,
+                textTheme: CupertinoTextThemeData(
+                  dateTimePickerTextStyle: TextStyle(
+                    fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.label),
+                ),
+              ),
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.time,
+                initialDateTime: _endTime,
+                use24hFormat: TimeFmt.use24h,
+                onDateTimeChanged: (dt) => temp = dt,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (mounted) {
+      setState(() => _endTime =
           DateTime(_deadline.year, _deadline.month, _deadline.day, temp.hour, temp.minute));
     }
   }
@@ -306,18 +388,24 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           'title':          _title.text.trim(),
           'description':    _desc.text.trim(),
           'scheduled_time': sched != null ? tsToDb(sched) : null,
+          if (_kind == _TaskKind.scheduled)
+            'end_time': tsToDb(_endTime),
           'all_day':        isToday,
           'priority':       _priority,
           'verification_required': _requireProof,
           'recurrence':     _recurrence,
         });
-        // Reschedule notifications from scratch — old ones may no longer
-        // match the (possibly changed) time/priority.
+        // Reschedule notifications from scratch.
         await NotificationService().cancelTaskNotifications(taskId);
         if (!isGlobal) {
           await NotificationService().scheduleTaskNotifications(
               taskId: taskId, taskTitle: _title.text.trim(),
               deadline: notifyAt, priority: _priority);
+        }
+        // Invite any newly added friends (don't remove existing ones).
+        final newFriends = _collab.difference(_originalCollab).toList();
+        if (newFriends.isNotEmpty) {
+          await SupabaseService.addCollaborators(taskId, newFriends);
         }
       } else {
         final uid = Supabase.instance.client.auth.currentUser?.id;
@@ -326,6 +414,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           'title':          _title.text.trim(),
           'description':    _desc.text.trim(),
           if (sched != null) 'scheduled_time': tsToDb(sched),
+          if (_kind == _TaskKind.scheduled) 'end_time': tsToDb(_endTime),
           'all_day':        isToday,
           'status':         'pending',
           'ai_generated':   false,
@@ -472,6 +561,14 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
               Expanded(child: _chipButton(
                 icon: Icons.access_time_outlined,
                 label: _timeLabel, onTap: _pickTime,
+              )),
+            ]),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: _chipButton(
+                icon: Icons.schedule_outlined,
+                label: 'End: ${TimeFmt.t(_endTime)}',
+                onTap: _pickEndTime,
               )),
             ]),
           ] else if (_kind == _TaskKind.today) ...[
@@ -659,37 +756,35 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
             const SizedBox(height: 24),
           ],
 
-          // Collaborators — quiet, optional (new tasks only; sharing an
-          // existing task is a separate, deliberate action elsewhere).
-          if (!_editing) ...[
-            _sectionLabel('COLLABORATORS'),
-            const SizedBox(height: 10),
-            GestureDetector(
-              onTap: _pickCollaborators,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.card,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.separator, width: 1),
-                ),
-                child: Row(children: [
-                  Icon(Icons.group_add_outlined, size: 20, color: AppColors.label2),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(
-                    _collab.isEmpty ? 'Share with a friend (optional)'
-                                    : '${_collab.length} ${_collab.length == 1 ? "friend" : "friends"} added',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: _collab.isEmpty ? FontWeight.w400 : FontWeight.w600,
-                      color: _collab.isEmpty ? AppColors.label3 : AppColors.label,
-                    ),
-                  )),
-                  Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
-                ]),
+          // Collaborators — available for both new and edited tasks.
+          _sectionLabel('COLLABORATORS'),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: _pickCollaborators,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              decoration: BoxDecoration(
+                color: AppColors.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.separator, width: 1),
               ),
+              child: Row(children: [
+                Icon(Icons.group_add_outlined, size: 20, color: AppColors.label2),
+                const SizedBox(width: 12),
+                Expanded(child: Text(
+                  _collab.isEmpty
+                      ? 'Share with a friend (optional)'
+                      : '${_collab.length} ${_collab.length == 1 ? "friend" : "friends"} added',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: _collab.isEmpty ? FontWeight.w400 : FontWeight.w600,
+                    color: _collab.isEmpty ? AppColors.label3 : AppColors.label,
+                  ),
+                )),
+                Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.label3),
+              ]),
             ),
-          ],
+          ),
         ],
       ),
     );

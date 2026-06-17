@@ -241,8 +241,19 @@ class SupabaseService {
     final rule = (task['recurrence'] as Map?)?.cast<String, dynamic>();
     final sched = tsTryFromDb(task['scheduled_time'] as String?);
     if (sched == null) return null; // global tasks don't auto-repeat
-    final next = Recurrence.nextOccurrence(sched, rule);
+
+    // Advance until the next occurrence is strictly in the future so the
+    // spawned task never appears as already overdue (e.g. "repeat hourly"
+    // completed 90 minutes late would otherwise spawn a task 30 min in the past).
+    DateTime? next = Recurrence.nextOccurrence(sched, rule);
     if (next == null) return null;
+    final now = DateTime.now();
+    while (next!.isBefore(now) || next.isAtSameMomentAs(now)) {
+      final advanced = Recurrence.nextOccurrence(next, rule);
+      if (advanced == null) return null;
+      next = advanced;
+    }
+
     final uid = client.auth.currentUser?.id;
     return createTask({
       'user_id': uid,
@@ -340,6 +351,22 @@ class SupabaseService {
     );
     current.addAll(prefs);
     await client.from('users').update({'preferences': current}).eq('id', userId);
+  }
+
+  /// Fire-and-forget: writes a single key to the user's preferences JSONB.
+  /// Safe to call from notifiers — errors are swallowed.
+  static void syncSetting(String key, dynamic value) {
+    updatePreferences({key: value}).catchError((_) {});
+  }
+
+  /// Loads the appearance-related keys from the user's Supabase preferences.
+  static Future<Map<String, dynamic>> loadAppearanceSettings() async {
+    try {
+      final profile = await getUserProfile();
+      final prefs = profile?['preferences'];
+      if (prefs is Map) return Map<String, dynamic>.from(prefs);
+    } catch (_) {}
+    return {};
   }
 
   static Future<void> updatePrivacySettings(Map<String, dynamic> settings) async {
@@ -595,6 +622,25 @@ class SupabaseService {
           'username': other['username'] ?? '',
         });
       }
+    }
+    return out;
+  }
+
+  /// Returns the set of user IDs already invited to [taskId] (union across all
+  /// collaboration rows owned by the current user for that task). Used by the
+  /// edit-task screen to prefill the collaborator picker.
+  static Future<Set<String>> getCollaboratorsForTask(String taskId) async {
+    final me = client.auth.currentUser?.id;
+    if (me == null) return {};
+    final rows = List<Map<String, dynamic>>.from(
+      await client.from('collaborations')
+          .select('invited_user_ids')
+          .eq('task_id', taskId)
+          .eq('owner_id', me),
+    );
+    final out = <String>{};
+    for (final r in rows) {
+      out.addAll(List<String>.from((r['invited_user_ids'] as List?) ?? const []));
     }
     return out;
   }

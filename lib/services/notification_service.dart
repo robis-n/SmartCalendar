@@ -151,14 +151,17 @@ class NotificationService {
     final idBase = (taskId.hashCode.abs() % 100000) * _slotsPerTask;
     var scheduled = 0;
 
+    final isPersistent = priority == 'high';
     Future<void> arm(int slot, DateTime at, String title, String body) async {
       if (!at.isAfter(now)) return;
+      // slot 0 is always the pre-deadline warning (never persistent-style)
+      final useAlarm = isPersistent && slot != 0;
       await _plugin.zonedSchedule(
         idBase + slot,
         title,
         body,
         tz.TZDateTime.from(at, tz.local),
-        _notifDetails(warning: slot == 0),
+        _notifDetails(warning: slot == 0, persistent: useAlarm),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         payload: '$taskId|$taskTitle',
         uiLocalNotificationDateInterpretation:
@@ -226,11 +229,49 @@ class NotificationService {
   }
 
   // ── Notification style ────────────────────────────────────────────────────
-  // Safety: a single dismissable, polite ping. Never `ongoing`, never
-  // `Importance.max` (forced alarm channel), never re-alerting on re-post.
-  // "Persistent" pressure comes from *separate scheduled follow-ups*, each
-  // individually dismissable — not from one un-dismissable notification.
-  NotificationDetails _notifDetails({required bool warning}) {
+  // Three tiers:
+  //   warning   → heads-up before deadline, dismissable, sound only.
+  //   deadline  → at deadline, dismissable, vibrate + sound.
+  //   persistent → high-priority deadline/follow-up. Uses Importance.max +
+  //                ongoing (can't swipe away) + alarm vibration pattern.
+  //                Cleared the moment the user opens the app via cancelAll().
+  NotificationDetails _notifDetails({required bool warning, bool persistent = false}) {
+    if (persistent) {
+      // Alarm-style vibration: on 800ms, off 400ms — repeats while the
+      // notification is alive. Pattern: [delay, on, off, on, off, ...]
+      const vibrationPattern = <int>[0, 800, 400, 800, 400, 800, 400, 800];
+      return NotificationDetails(
+        android: AndroidNotificationDetails(
+          'task_persistent',
+          'Persistent Reminders',
+          channelDescription:
+              'Alarm-style alerts for Persistent priority tasks — stays until you open the app',
+          importance: Importance.max,
+          priority: Priority.max,
+          ongoing: true,
+          autoCancel: false,
+          onlyAlertOnce: false,
+          playSound: true,
+          enableVibration: true,
+          vibrationPattern: Int64List.fromList(vibrationPattern),
+          fullScreenIntent: true,
+          category: AndroidNotificationCategory.alarm,
+          actions: [
+            const AndroidNotificationAction('verify', 'Open App',
+                showsUserInterface: true),
+          ],
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
+          presentBadge: true,
+          presentSound: true,
+          interruptionLevel: InterruptionLevel.timeSensitive,
+          categoryIdentifier: 'TASK_DEADLINE',
+        ),
+      );
+    }
     return NotificationDetails(
       android: AndroidNotificationDetails(
         warning ? 'task_warning' : 'task_deadline',
@@ -255,15 +296,10 @@ class NotificationService {
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
-        presentBanner: true, // iOS 14+ foreground banner
+        presentBanner: true,
         presentList: true,
         presentBadge: true,
         presentSound: true,
-        // Deadline + follow-ups are timeSensitive so a Focus mode (Sleep, DND,
-        // Work…) doesn't swallow them — this is exactly the moment the user
-        // asked to be nudged. iOS silently downgrades to `active` if the
-        // entitlement is missing, so this can never make things worse.
-        // The pre-deadline warning stays polite (`active`).
         interruptionLevel: warning
             ? InterruptionLevel.active
             : InterruptionLevel.timeSensitive,

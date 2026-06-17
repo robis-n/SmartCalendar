@@ -864,9 +864,11 @@ class _MonthGridState extends State<_MonthGrid> {
                         width: 34, height: 34,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: today ? AppColors.accent : Colors.transparent,
+                          color: today
+                              ? AppColors.accent
+                              : (sel ? AppColors.label.withValues(alpha: 0.13) : Colors.transparent),
                           border: (sel && !today)
-                              ? Border.all(color: AppColors.accent, width: 1.6)
+                              ? Border.all(color: AppColors.label, width: 1.6)
                               : null,
                         ),
                         alignment: Alignment.center,
@@ -1056,12 +1058,19 @@ class _WeekTimelineState extends State<_WeekTimeline> {
       for (final t in allTasks[day]) {
         if (t['scheduled_time'] == null) continue;
         final start = tsFromDb(t['scheduled_time'] as String);
+        final isAllDay = t['all_day'] == true;
+        // end_time column may be null; fall back to start+1h for timed tasks.
+        final endRaw = t['end_time'] as String?;
+        final end = isAllDay
+            ? start
+            : (endRaw != null ? tsFromDb(endRaw) : start.add(const Duration(hours: 1)));
         ev[day].add(_WeekEvent(
           id: t['id'] as String? ?? '',
           title: t['title'] as String? ?? '',
           start: start,
-          end: start.add(const Duration(hours: 1)),
+          end: end,
           isTask: true,
+          allDay: isAllDay,
           status: t['status'] as String? ?? 'pending',
         ));
       }
@@ -1145,9 +1154,11 @@ class _WeekTimelineState extends State<_WeekTimeline> {
                     width: 28, height: 28,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: isToday ? AppColors.accent : Colors.transparent,
+                      color: isToday
+                          ? AppColors.accent
+                          : (isSel ? AppColors.label.withValues(alpha: 0.13) : Colors.transparent),
                       border: (isSel && !isToday)
-                          ? Border.all(color: AppColors.accent, width: 1.5)
+                          ? Border.all(color: AppColors.label, width: 1.5)
                           : null,
                     ),
                     alignment: Alignment.center,
@@ -1157,8 +1168,7 @@ class _WeekTimelineState extends State<_WeekTimeline> {
                             fontWeight: (isToday || isSel)
                                 ? FontWeight.w700
                                 : FontWeight.w500,
-                            color:
-                                isToday ? AppColors.onAccent : AppColors.label)),
+                            color: isToday ? AppColors.onAccent : AppColors.label)),
                   ),
                 ]),
               ),
@@ -1427,8 +1437,53 @@ class _DaySheetState extends State<_DaySheet> {
     }
   }
 
-  String _fmt(DateTime d) {
-    return TimeFmt.t(d);
+  String _fmt(DateTime d) => TimeFmt.t(d);
+
+  List<Widget> _buildDaySheetItems() {
+    final allDay = _tasks.where((t) => t['all_day'] == true).toList();
+    final timed  = _tasks.where((t) => t['all_day'] != true).toList();
+    final items  = <Widget>[];
+
+    if (allDay.isNotEmpty) {
+      items.add(Padding(
+        padding: const EdgeInsets.only(bottom: 6, top: 4),
+        child: Text('ALL DAY', style: TextStyle(
+            fontSize: 11, fontWeight: FontWeight.w800,
+            color: AppColors.label3, letterSpacing: 1.5)),
+      ));
+      for (var i = 0; i < allDay.length; i++) {
+        if (i > 0) items.add(Container(height: 0.5, color: AppColors.separator));
+        items.add(_TaskRow(task: allDay[i], onTap: () => _openTask(allDay[i]), fmtTime: _fmt));
+      }
+    }
+
+    if (timed.isNotEmpty) {
+      items.add(Padding(
+        padding: EdgeInsets.only(bottom: 6, top: allDay.isNotEmpty ? 16 : 4),
+        child: Text('REMINDERS', style: TextStyle(
+            fontSize: 11, fontWeight: FontWeight.w800,
+            color: AppColors.label3, letterSpacing: 1.5)),
+      ));
+      for (var i = 0; i < timed.length; i++) {
+        if (i > 0) items.add(Container(height: 0.5, color: AppColors.separator));
+        items.add(_TaskRow(task: timed[i], onTap: () => _openTask(timed[i]), fmtTime: _fmt));
+      }
+    }
+
+    if (_devEvs.isNotEmpty) {
+      items.add(Padding(
+        padding: EdgeInsets.only(top: _tasks.isEmpty ? 4 : 20, bottom: 6),
+        child: Text('FROM YOUR CALENDARS', style: TextStyle(
+            fontSize: 11, fontWeight: FontWeight.w800,
+            color: AppColors.label3, letterSpacing: 1.5)),
+      ));
+      for (var i = 0; i < _devEvs.length; i++) {
+        if (i > 0) items.add(Container(height: 0.5, color: AppColors.separator));
+        items.add(_DevEventRow(event: _devEvs[i], fmtTime: _fmt));
+      }
+    }
+
+    return items;
   }
 
   @override
@@ -1517,53 +1572,7 @@ class _DaySheetState extends State<_DaySheet> {
                             controller: scrollCtrl,
                             padding: EdgeInsets.fromLTRB(
                                 24, 4, 24, mq.padding.bottom + 20),
-                            children: [
-                              // Tasks
-                              if (_tasks.isNotEmpty) ...[
-                                Padding(
-                                  padding:
-                                      const EdgeInsets.only(bottom: 6, top: 4),
-                                  child: Text('REMINDERS',
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                          color: AppColors.label3,
-                                          letterSpacing: 1.5)),
-                                ),
-                                for (var i = 0; i < _tasks.length; i++) ...[
-                                  if (i > 0)
-                                    Container(
-                                        height: 0.5,
-                                        color: AppColors.separator),
-                                  _TaskRow(
-                                      task: _tasks[i],
-                                      onTap: () => _openTask(_tasks[i]),
-                                      fmtTime: _fmt),
-                                ],
-                              ],
-                              // Device events
-                              if (_devEvs.isNotEmpty) ...[
-                                Padding(
-                                  padding: EdgeInsets.only(
-                                      top: _tasks.isEmpty ? 4 : 20,
-                                      bottom: 6),
-                                  child: Text('FROM YOUR CALENDARS',
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                          color: AppColors.label3,
-                                          letterSpacing: 1.5)),
-                                ),
-                                for (var i = 0; i < _devEvs.length; i++) ...[
-                                  if (i > 0)
-                                    Container(
-                                        height: 0.5,
-                                        color: AppColors.separator),
-                                  _DevEventRow(
-                                      event: _devEvs[i], fmtTime: _fmt),
-                                ],
-                              ],
-                            ],
+                            children: _buildDaySheetItems(),
                           ),
               ),
             ]),
@@ -1586,9 +1595,11 @@ class _TaskRow extends StatelessWidget {
     final status  = task['status'] as String? ?? 'pending';
     final isDone  = status == 'verified';
     final isFail  = status == 'failed';
-    final time    = task['scheduled_time'] != null
-        ? fmtTime(tsFromDb(task['scheduled_time'] as String))
-        : 'Anytime';
+    final time    = task['all_day'] == true
+        ? 'All day'
+        : task['scheduled_time'] != null
+            ? fmtTime(tsFromDb(task['scheduled_time'] as String))
+            : 'Anytime';
     final priority = task['priority'] as String? ?? 'medium';
 
     return GestureDetector(

@@ -202,29 +202,37 @@ const List<AccentPalette> kAccentPalettes = [
   ),
 ];
 
-/// Builds a full [AccentPalette] from a single seed hue (0–360°), so the user
-/// can pick ANY colour — not just the curated presets — and get a matching
-/// duotone in the same spirit: a deep, saturated surface family in the seed
-/// hue, paired with its colour-wheel complement (seed + 180°) as the vivid
-/// accent. Lightness/saturation tiers are modelled on the hand-tuned presets
-/// above so a custom hue still reads as "designed", not just a raw colour.
-AccentPalette derivePaletteFromHue(double hue) {
-  final h = hue % 360;
-  final complement = (h + 180) % 360;
-  Color hsl(double hue, double sat, double light) =>
-      HSLColor.fromAHSL(1, hue, sat, light).toColor();
+/// Builds a full [AccentPalette] from a single seed hue (0–360°).
+/// Kept for legacy callers — prefer [derivePaletteFromColor].
+AccentPalette derivePaletteFromHue(double hue) =>
+    derivePaletteFromColor(HSLColor.fromAHSL(1, hue % 360, 0.85, 0.62).toColor());
+
+/// Builds a full [AccentPalette] from an arbitrary Color the user picked.
+/// Uses the picked color directly as the accent; derives the surface family
+/// from its HSV hue (scaled by the picked saturation so a muted pick gives a
+/// muted surface, not a vivid one).
+AccentPalette derivePaletteFromColor(Color picked) {
+  final hsv = HSVColor.fromColor(picked);
+  final h   = hsv.hue;
+  final sat = hsv.saturation.clamp(0.3, 1.0); // never go fully grey
+  Color hsl(double hue, double s, double l) =>
+      HSLColor.fromAHSL(1, hue, s, l).toColor();
+  // Darken for light-mode accent to keep contrast on white background.
+  final lightAccent = HSLColor.fromColor(picked)
+      .withLightness((HSLColor.fromColor(picked).lightness * 0.65).clamp(0.2, 0.55))
+      .toColor();
   return AccentPalette(
     name: 'Custom',
-    darkBg:        hsl(h, 0.55, 0.10),
-    darkSurface:   hsl(h, 0.50, 0.15),
-    darkSurface2:  hsl(h, 0.42, 0.21),
+    darkBg:        hsl(h, sat * 0.55, 0.10),
+    darkSurface:   hsl(h, sat * 0.50, 0.15),
+    darkSurface2:  hsl(h, sat * 0.42, 0.21),
     darkInk:       hsl(h, 0.15, 0.95),
-    darkAccent:    hsl(complement, 0.85, 0.62),
-    lightBg:       hsl(h, 0.55, 0.92),
-    lightSurface:  hsl(h, 0.30, 0.99),
-    lightSurface2: hsl(h, 0.40, 0.86),
-    lightInk:      hsl(h, 0.55, 0.11),
-    lightAccent:   hsl(complement, 0.75, 0.42),
+    darkAccent:    picked,
+    lightBg:       hsl(h, sat * 0.55, 0.92),
+    lightSurface:  hsl(h, sat * 0.30, 0.99),
+    lightSurface2: hsl(h, sat * 0.40, 0.86),
+    lightInk:      hsl(h, sat * 0.55, 0.11),
+    lightAccent:   lightAccent,
   );
 }
 

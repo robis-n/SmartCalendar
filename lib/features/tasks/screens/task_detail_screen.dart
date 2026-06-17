@@ -23,6 +23,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   bool _loading = true;
   bool _saving  = false;
 
+  bool _editBtnPressed = false;
+
   @override
   void initState() { super.initState(); _load(); }
 
@@ -318,7 +320,26 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     if (owner)
                       GestureDetector(
                         onTap: _openEdit,
-                        child: Icon(Icons.edit_outlined, size: 20, color: AppColors.label3),
+                        onTapDown: (_) => setState(() => _editBtnPressed = true),
+                        onTapUp: (_) => Future.delayed(
+                          const Duration(milliseconds: 150),
+                          () { if (mounted) setState(() => _editBtnPressed = false); },
+                        ),
+                        onTapCancel: () => setState(() => _editBtnPressed = false),
+                        child: AnimatedScale(
+                          scale: _editBtnPressed ? 0.78 : 1.0,
+                          duration: const Duration(milliseconds: 80),
+                          curve: Curves.easeOut,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.bg2,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppColors.separator, width: 0.8),
+                            ),
+                            child: Icon(Icons.edit_outlined, size: 18, color: AppColors.label2),
+                          ),
+                        ),
                       ),
                   ]),
                   const SizedBox(height: 14),
