@@ -50,13 +50,14 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
     final raw = _identifier.text.trim();
     try {
-      // If user typed a username (no @), resolve to email first.
-      final email = raw.contains('@')
-          ? raw
-          : (await SupabaseService.emailForUsername(raw)) ?? raw;
-
-      await Supabase.instance.client.auth.signInWithPassword(
-          email: email, password: _password.text.trim());
+      final password = _password.text.trim();
+      if (raw.contains('@')) {
+        await Supabase.instance.client.auth
+            .signInWithPassword(email: raw, password: password);
+      } else {
+        // Username: resolved to an email server-side, never on the device.
+        await SupabaseService.signInWithUsername(raw, password);
+      }
       // The admin (CEO) account signs in exactly like anyone else — its admin
       // rights live in the DB (subscription_tier = 'admin'), never in the app.
       if (mounted) _onSignedIn();
@@ -153,6 +154,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (s.contains('Invalid login credentials')) return 'Wrong username/email or password';
     if (s.contains('Email not confirmed'))       return 'Confirm your email first';
     if (s.contains('User already registered'))   return 'That email is already in use';
+    if (e is AuthException) return e.message;
     return s.replaceFirst('Exception: ', '');
   }
 
