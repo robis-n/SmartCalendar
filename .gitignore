@@ -49,3 +49,7 @@ app.*.map.json
 ipa-download-luxury/
 ipa-v3/
 *.ipa
+
+# Built app files — download these from GitHub Actions instead
+ipa-download/
+*.ipa

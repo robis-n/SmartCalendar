@@ -447,17 +447,36 @@ class SupabaseService {
   static Future<Map<String, dynamic>?> searchUserByEmail(String email) =>
       searchUserByHandle(email);
 
-  /// Resolve a username → email so the user can sign in with either.
-  /// Server-side RPC (callable pre-auth); returns null if no such user.
-  static Future<String?> emailForUsername(String username) async {
+  /// Sign in with a username + password. The username → email lookup happens
+  /// inside the `login-with-username` Edge Function, so the email never
+  /// reaches the device. Unknown usernames and wrong passwords fail the same
+  /// way ("Invalid login credentials").
+  static Future<void> signInWithUsername(String username, String password) async {
     final clean = username.toLowerCase().trim();
-    if (clean.isEmpty || clean.contains('@')) return null;
+    Map<String, dynamic> data;
     try {
-      final res = await client.rpc('email_for_username', params: {'p': clean});
-      return res as String?;
-    } catch (_) {
-      return null;
+      final res = await client.functions.invoke('login-with-username',
+          body: {'username': clean, 'password': password});
+      data = Map<String, dynamic>.from(res.data as Map);
+    } on FunctionException catch (e) {
+      final details = e.details;
+      final code = details is Map ? details['error'] : null;
+      if (code == 'email_not_confirmed') {
+        throw const AuthException('Email not confirmed');
+      }
+      if (code == 'rate_limited') {
+        throw const AuthException('Too many attempts. Try again in a minute.');
+      }
+      if (code == 'invalid_credentials') {
+        throw const AuthException('Invalid login credentials');
+      }
+      throw const AuthException('Could not sign in. Try again, or use your email.');
     }
+    final refreshToken = data['refresh_token'] as String?;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw const AuthException('Could not sign in. Try again, or use your email.');
+    }
+    await client.auth.setSession(refreshToken);
   }
 
   /// Random "you might know…" friend suggestions — people I'm not already
